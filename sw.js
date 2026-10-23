@@ -1,5 +1,5 @@
 // Service worker: app disponível offline; cadernos em PDF ficam salvos depois do primeiro uso.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = `enem-shell-${VERSION}`;
 const PDFS = 'enem-pdfs-v1';
 const YEARS = [2021, 2022, 2023, 2024, 2025];
@@ -38,8 +38,8 @@ self.addEventListener('fetch', e => {
     }));
     return;
   }
-  // resto: rede primeiro (para pegar atualizações), cache se offline
-  e.respondWith(fetch(e.request).then(res => {
+  // resto: rede primeiro, sempre revalidando (o GitHub Pages manda cache de 10 min), cache se offline
+  e.respondWith(fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }).then(res => {
     if (res.ok) caches.open(SHELL).then(c => c.put(e.request, res.clone()));
     return res;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
