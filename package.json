@@ -1,0 +1,12 @@
+{
+  "name": "simulado-enem",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dados": "python3 -I scripts/parse_gabaritos.py . && node scripts/build_layout.mjs .",
+    "materias": "echo 'OCR: pdftoppm -r 110 -png + swiftc scripts/ocr.swift; depois: python3 scripts/question_texts.py . <dir-ocr> textos.json && python3 scripts/classify.py . textos.json'",
+    "vendor": "mkdir -p vendor && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/",
+    "start": "node scripts/serve.mjs"
+  },
+  "devDependencies": { "pdfjs-dist": "4.10.38" }
+}
