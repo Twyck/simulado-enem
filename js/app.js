@@ -212,5 +212,14 @@ window.addEventListener('hashchange', route);
 route();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW', err));
+  // quando sai uma versão nova, o service worker novo assume e a página recarrega sozinha uma vez
+  // (só fora da prova, para não interromper ninguém no meio dela)
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading || location.hash.startsWith('#/prova/')) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then(reg => reg.update()).catch(err => console.warn('SW', err));
 }
