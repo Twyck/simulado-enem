@@ -4,6 +4,7 @@ import { listAttempts, saveAttempt, getAttempt, deleteAttempt } from './store.js
 import { examScreen } from './exam.js';
 import { resultsScreen } from './results.js';
 import { evolutionScreen } from './evolution.js';
+import { introHTML, mountIntro } from './intro.js';
 import { computeStats } from './stats.js';
 import { h, icon, clock, pct, fmtPct, modal, toast, esc } from './ui.js';
 
@@ -34,6 +35,7 @@ async function route() {
       return a ? resultsScreen(app, a, { go }) : go('#/');
     }
     if (view === 'evolucao') return evolutionScreen(app);
+    if (view === 'sobre') return home({ intro: true });
     if (view === 'revisao' && id) {
       const a = await getAttempt(id);
       return a ? examScreen(app, a, { review: true, focusQ: q ? decodeURIComponent(q) : null, go, setLeave }) : go('#/');
@@ -45,7 +47,7 @@ async function route() {
   }
 }
 
-async function home() {
+async function home({ intro = false } = {}) {
   const attempts = await listAttempts();
   const sel = {
     year: prefs.year ?? YEARS[0],
@@ -57,25 +59,35 @@ async function home() {
   const running = attempts.filter(a => a.status !== 'done');
   const done = attempts.filter(a => a.status === 'done');
 
+  // primeira visita (nenhuma prova) ou #/sobre: apresentação completa antes do formulário
+  const showIntro = intro || attempts.length === 0;
   app.innerHTML = '';
+  if (showIntro) {
+    app.append(h(`<nav class="l-nav"><a class="brand" href="#/"><img src="icons/icon.svg" alt="">Simulado ENEM</a>
+      <a class="l-nav-cta" href="#nova">Fazer uma prova</a></nav>`));
+    const landing = h(introHTML());
+    app.append(landing);
+    mountIntro(landing);
+    app.querySelector('.l-nav-cta').addEventListener('click', e => { e.preventDefault(); document.getElementById('nova')?.scrollIntoView({ behavior: 'smooth' }); });
+  }
   const oval = '<i class="oval" aria-hidden="true"></i>';
-  const el = h(`<div class="home">
-    <header class="topbar">
+  const el = h(`<div class="home ${showIntro ? 'after-intro' : ''}">
+    ${showIntro ? '' : `<header class="topbar">
       <a class="brand" href="#/"><img src="icons/icon.svg" alt="">Simulado ENEM</a>
-      ${done.length ? '<a class="btn sm" href="#/evolucao">Sua evolução</a>' : ''}
+      <nav class="row-actions"><a class="btn sm ghost" href="#/sobre">Sobre o app</a>${done.length ? '<a class="btn sm" href="#/evolucao">Sua evolução</a>' : ''}</nav>
     </header>
 
     <section class="intro">
       <h1>A prova oficial, do jeito que cai no dia.</h1>
       <p>Os cadernos do INEP de 2021 a 2025 na tela, com cartão-resposta, cronômetro e nota calculada pela TRI como a oficial.</p>
-    </section>
+    </section>`}
 
     ${running.length ? `<section class="section"><h2>Continue de onde parou</h2>${running.map(a => `
       <div class="resume"><div><b>ENEM ${a.year}, ${DAYS[a.day].label}</b>
         <div class="meta">${Object.keys(a.answers || {}).length} de 90 respondidas, ${clock(a.elapsed)} de prova</div></div>
         <div class="row-actions"><button class="btn sm ghost danger" data-del="${a.id}" title="Excluir">${icon.trash}</button><a class="btn primary sm" href="#/prova/${a.id}">Continuar prova</a></div></div>`).join('')}</section>` : ''}
 
-    <section class="section">
+    <section class="section" id="nova">
       <div class="answer-form timing">
         <div class="form-head"><h2>Nova prova</h2><span class="code">Caderno Azul</span></div>
         <div class="field"><span class="label">Ano</span><div class="choices years">${YEARS.map(y => `<button class="choice" data-year="${y}">${oval}<span>${y}</span></button>`).join('')}</div></div>
@@ -92,7 +104,7 @@ async function home() {
       </div>
     </section>
 
-    <section class="section">
+    <section class="section ${showIntro && !done.length ? 'hidden' : ''}">
       <div class="section-head"><h2>Histórico</h2>${done.length ? '<a href="#/evolucao">Ver evolução</a>' : ''}</div>
       ${done.length ? `<table class="history"><thead><tr><th>Prova</th><th class="hide-sm">Data</th><th>Nota TRI</th><th class="hide-sm">Tempo</th><th></th></tr></thead><tbody>
       ${done.map(a => `<tr data-id="${a.id}"><td><b>${a.year}</b>, ${DAYS[a.day].label}</td><td class="hide-sm muted">${new Date(a.startedAt).toLocaleDateString('pt-BR')}</td>
@@ -105,6 +117,9 @@ async function home() {
       <div class="offline-row"><p>Para usar sem internet, instale o app (menu do navegador, “Adicionar à tela de início”) e salve os cadernos no aparelho.</p>
       <div class="progress hidden"><i></i></div><button class="btn dl">${icon.download} Salvar as 10 provas</button></div>
     </section>
+
+    <footer class="fine">Cadernos, gabaritos, parâmetros da TRI e Matriz de Referência: publicações oficiais do INEP (download.inep.gov.br).
+      Este é um app independente de estudo, sem vínculo com o INEP ou o MEC.</footer>
   </div>`);
   app.append(el);
 

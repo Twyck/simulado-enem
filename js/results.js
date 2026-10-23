@@ -66,7 +66,7 @@ export async function resultsScreen(app, attempt, { go }) {
       <aside class="boletim-side">
         <div class="stat"><div class="k">Tempo de prova</div><div class="v">${clock(st.elapsed)}</div>
           <div class="s">${!attempt.limitSec ? 'sem limite' : st.elapsed > attempt.limitSec ? `passou ${dur(st.elapsed - attempt.limitSec)} do limite` : `sobraram ${dur(attempt.limitSec - st.elapsed)}`}</div></div>
-        <div class="stat"><div class="k">Por questão</div><div class="v">${clock(st.avg, false)}</div><div class="s">em média; o ritmo para terminar é 3:00</div></div>
+        <div class="stat"><div class="k">Por questão</div><div class="v">${clock(st.avg, false)}</div><div class="s">em média${attempt.limitSec ? `; o ritmo para terminar no tempo é ${clock(attempt.limitSec / exam.ids.length, false)}` : ''}</div></div>
         <div class="stat"><div class="k">Erradas e em branco</div><div class="v">${st.erradas + st.branco}</div><div class="s">${st.branco} em branco${st.anuladas ? `, ${st.anuladas} anulada${st.anuladas > 1 ? 's' : ''} fora da conta` : ''}</div></div>
       </aside>
     </section>` : `<div class="hero">
