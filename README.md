@@ -15,6 +15,16 @@ npm start
 
 Abra http://localhost:5173. Tudo fica salvo no navegador (IndexedDB), inclusive provas em andamento.
 
+## Treino por matéria
+
+Em "Nova prova", escolha **Treino por matéria**: matéria, assunto (opcional), anos e quantidade. O app mostra só
+essas questões, recortadas dos cadernos oficiais, e a análise mostra os assuntos fortes e fracos.
+
+## Backup
+
+As provas ficam só no navegador. Em "Seus dados", **Baixar backup** gera um arquivo `.json` com tudo (respostas,
+anotações, tempos); **Restaurar backup** junta esse arquivo ao que já existe no aparelho.
+
 ## Como usar na prova
 
 - **Clique na letra** (A–E) dentro do PDF para marcar; clique de novo para desmarcar.
@@ -34,8 +44,11 @@ Abra http://localhost:5173. Tudo fica salvo no navegador (IndexedDB), inclusive 
   `ITENS_PROVA_<ano>.csv` dos microdados do INEP (`scripts/build_itens.py`, que lê só esse arquivo de
   dentro do zip via HTTP Range, sem baixar os ~600 MB).
 - `data/habilidades.json` — as 30 habilidades de cada área da Matriz de Referência (`scripts/parse_matriz.py`).
-- `data/disciplinas.json` — matéria de cada questão, **classificação automática aproximada** por
-  palavras-chave sobre o OCR das páginas (`scripts/ocr.swift`, `question_texts.py`, `classify.py`).
+- `data/assuntos.json` — matéria e assunto de cada uma das 925 questões, classificados lendo o enunciado
+  (lista em `scripts/assuntos/*.out`, gerada com `scripts/build_assuntos.py`; textos via OCR com `scripts/ocr.swift`).
+- `data/layout/*.json` também traz o recorte de cada questão (`parts`), usado no treino por matéria.
+- `data/percentis.json` — distribuição das notas oficiais de todos os participantes de cada ano
+  (2,2 a 3,5 milhões por área), lida dos microdados por `scripts/build_percentis.py`.
 
 ### Nota TRI
 

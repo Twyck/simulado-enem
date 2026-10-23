@@ -1,14 +1,19 @@
 // Tela da prova: caderno em PDF + cronômetro + cartão-resposta, e o modo revisão depois de terminar.
-import { AREAS, DAYS, LANGS, loadExam } from './data.js';
+import { AREAS, DAYS, LANGS, loadExam, loadTreino } from './data.js';
 import { Viewer, openPdf } from './viewer.js';
+import { CropViewer } from './cards.js';
 import { saveAttempt } from './store.js';
 import { h, icon, clock, dur, modal, toast, esc } from './ui.js';
 
 const OFFSCREEN_SECONDS = 3; // após quanto tempo fora da tela a questão "em foco" muda pela rolagem
 
 export async function examScreen(app, attempt, { review = false, focusQ = null, go, setLeave }) {
-  const exam = await loadExam(attempt.year, attempt.day, attempt.lang);
-  const day = DAYS[attempt.day];
+  // treino por matéria: questões recortadas de vários cadernos; senão, a prova completa de um dia
+  const treino = attempt.mode === 'treino';
+  const exam = treino ? await loadTreino(attempt.items) : await loadExam(attempt.year, attempt.day, attempt.lang);
+  const day = treino ? null : DAYS[attempt.day];
+  const titulo = treino ? `Treino de ${attempt.materia}` : `ENEM ${attempt.year} · ${day.label}`;
+  const subtitulo = treino ? `${attempt.assunto || 'Todos os assuntos'}, ${exam.ids.length} questões` : `Caderno 1 Azul${attempt.day === 1 ? ` · ${LANGS[attempt.lang]}` : ''}`;
   const limit = attempt.limitSec;
   const ids = exam.ids;
 
@@ -16,7 +21,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   const el = h(`<div class="exam ${review ? 'review' : ''}">
     <header class="exam-bar">
       <button class="btn ghost sm back" title="Voltar">${icon.back}</button>
-      <div class="title">ENEM ${attempt.year} · ${day.label}<small>${review ? 'Revisão — verde = gabarito, vermelho = seu erro' : `Caderno 1 Azul${attempt.day === 1 ? ` · ${LANGS[attempt.lang]}` : ''}`}</small></div>
+      <div class="title">${esc(titulo)}<small>${review ? 'Revisão: verde é o gabarito, vermelho é o seu erro' : esc(subtitulo)}</small></div>
       ${review ? '<div class="timer"><b class="tabular">' + clock(attempt.elapsed) + '</b><small>tempo de prova</small></div>' : `
       <div class="timer" title="Tempo de prova"><b class="tabular t-main">0:00:00</b><small class="t-sub"></small></div>`}
       <div class="qnow"></div>
@@ -24,9 +29,9 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
         ${review ? '' : `
         <button class="tool" data-tool="mark" title="Marcar alternativa (clique na letra)">${icon.mark}</button>
         <button class="tool" data-tool="cross" title="Riscar alternativa (ou clique direito / toque longo)">${icon.cross}</button>
-        <button class="tool" data-tool="pen" title="Caneta">${icon.pen}</button>
+        ${treino ? '' : `<button class="tool" data-tool="pen" title="Caneta">${icon.pen}</button>
         <button class="tool" data-tool="highlighter" title="Marca-texto">${icon.highlighter}</button>
-        <button class="tool" data-tool="eraser" title="Borracha">${icon.eraser}</button>`}
+        <button class="tool" data-tool="eraser" title="Borracha">${icon.eraser}</button>`}`}
         <button class="tool zoom" data-zoom="-1" title="Diminuir zoom">${icon.zoomOut}</button>
         <button class="tool zoom" data-zoom="1" title="Aumentar zoom">${icon.zoomIn}</button>
       </div>
@@ -37,7 +42,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     </header>
     <div class="exam-main">
       <div class="scroller"><div class="pages"></div>
-        <div class="loading"><div>Abrindo o caderno oficial do INEP…<div class="progress"><i></i></div></div></div>
+        <div class="loading"><div>${treino ? 'Separando as questões nos cadernos do INEP…' : 'Abrindo o caderno oficial do INEP…'}<div class="progress"><i></i></div></div></div>
       </div>
       <aside class="sheet" aria-label="Cartão-resposta"></aside>
     </div>
@@ -64,13 +69,14 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   // ---------------- cartão-resposta ----------------
   function buildSheet() {
     const rows = [];
-    for (const area of day.areas) {
-      rows.push(`<div class="sheet-area">${AREAS[area].name}</div>`);
-      for (const q of exam.questions.filter(q => q.area === area)) {
-        const label = q.n <= 5 && attempt.day === 1 ? `${String(q.n).padStart(2, '0')}` : String(q.n).padStart(2, '0');
+    const groups = treino ? [[attempt.materia, exam.questions]] : day.areas.map(a => [AREAS[a].name, exam.questions.filter(q => q.area === a)]);
+    for (const [name, qs] of groups) {
+      rows.push(`<div class="sheet-area">${esc(name)}</div>`);
+      for (const q of qs) {
+        const label = treino ? String(q.idx).padStart(2, '0') : String(q.n).padStart(2, '0');
         rows.push(`<div class="row" data-q="${q.id}">
-          <button class="num" title="Ir para a questão ${q.n}">${label}</button>
-          <div class="opts">${'ABCDE'.split('').map(L => `<button class="opt" data-l="${L}" aria-label="Questão ${q.n}, ${L}">${L}</button>`).join('')}</div>
+          <button class="num" title="${treino ? esc(q.origem) : `Ir para a questão ${q.n}`}">${label}</button>
+          <div class="opts">${'ABCDE'.split('').map(L => `<button class="opt" data-l="${L}" aria-label="Questão ${label}, ${L}">${L}</button>`).join('')}</div>
           ${review ? `<span class="t">${dur(attempt.time[q.id] || 0)}</span>` : `<button class="flag" title="Marcar para revisar">${icon.flag}</button>`}
         </div>`);
       }
@@ -78,7 +84,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     sheet.innerHTML = `<div class="sheet-head"><h3>Cartão-resposta <span class="muted tabular s-count"></span></h3><div class="progress"><i></i></div></div>
       ${rows.join('')}
       ${review ? '' : `<div class="kbd-hint"><kbd>A</kbd>–<kbd>E</kbd> marcam a questão em foco · <kbd>J</kbd>/<kbd>K</kbd> próxima/anterior · clique direito risca</div>
-      <div class="sheet-foot"><button class="btn primary finish">${icon.check} Entregar prova</button></div>`}`;
+      <div class="sheet-foot"><button class="btn primary finish">${icon.check} ${treino ? 'Entregar treino' : 'Entregar prova'}</button></div>`}`;
     sheet.addEventListener('click', e => {
       const row = e.target.closest('.row');
       if (!row) return;
@@ -161,7 +167,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   function updateQNow() {
     const q = exam.byId[attempt.current];
     if (!q || review) { $('.qnow').textContent = ''; return; }
-    $('.qnow').innerHTML = `Questão <b>${q.n}</b> · ${clock(attempt.time[q.id] || 0, false)}`;
+    $('.qnow').innerHTML = `Questão <b>${treino ? q.idx : q.n}</b> · ${clock(attempt.time[q.id] || 0, false)}`;
   }
 
   // ---------------- cronômetro ----------------
@@ -304,17 +310,24 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
 
   // ---------------- carrega o PDF ----------------
   try {
-    const pdf = await openPdf(attempt.year, attempt.day, f => { $('.loading .progress i').style.width = `${f * 100}%`; });
-    if (destroyed) return pdf.destroy();
-    viewer = new Viewer($('.pages'), exam, {
+    const vopts = {
       attemptId: attempt.id,
       mode: review ? 'review' : 'exam',
       state: () => attempt,
       onMark: mark,
       onCross: cross,
       onFocus: setCurrent,
-    });
-    await viewer.load(pdf);
+    };
+    if (treino) {
+      viewer = new CropViewer($('.pages'), exam, vopts);
+      await viewer.load();
+      if (destroyed) return viewer.destroy();
+    } else {
+      const pdf = await openPdf(attempt.year, attempt.day, f => { $('.loading .progress i').style.width = `${f * 100}%`; });
+      if (destroyed) return pdf.destroy();
+      viewer = new Viewer($('.pages'), exam, vopts);
+      await viewer.load(pdf);
+    }
     viewer.setTool('mark');
     $('.loading').remove();
     if (attempt.status === 'paused' && !review) setPaused(false);

@@ -1,9 +1,11 @@
 // Tela de resultado: acertos, onde errou mais, tempo por questão, ritmo e lista detalhada.
-import { DAYS, LANGS, AREAS, loadExam } from './data.js';
+import { DAYS, LANGS, AREAS, loadFor, nomeProva, loadPercentis, percentil } from './data.js';
+import { porMateria, materiasHTML, resumoHTML } from './topics.js';
 import { computeStats } from './stats.js';
 import { h, icon, clock, dur, pct, fmtPct, esc } from './ui.js';
 
 const nota = v => (v == null ? '—' : v.toFixed(1).replace('.', ','));
+const participantes = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace('.', ',')} ${n >= 2e6 ? 'milhões' : 'milhão'} de participantes` : `${n.toLocaleString('pt-BR')} participantes`);
 
 const STATUS = {
   certa: { label: 'Certa', cls: 'good', color: 'var(--good)' },
@@ -13,12 +15,18 @@ const STATUS = {
 };
 
 export async function resultsScreen(app, attempt, { go }) {
-  const exam = await loadExam(attempt.year, attempt.day, attempt.lang);
+  const treino = attempt.mode === 'treino';
+  const exam = await loadFor(attempt);
   const st = computeStats(exam, attempt);
-  const day = DAYS[attempt.day];
+  const dist = treino ? null : (await loadPercentis())[attempt.year] || null;
+  const materias = porMateria(st.qs);
+  const pctOf = (key, v) => percentil(dist?.[key], v);
+  const pctTxt = p => (p == null ? '' : p >= 99.95 ? 'acima de 99,9%' : `${String(Math.round(p * 10) / 10).replace('.', ',')}%`);
+  const dayKey = `d${attempt.day}`;
+  const day = treino ? null : DAYS[attempt.day];
   const reviewLink = qid => `#/revisao/${attempt.id}/${qid}`;
-  const qLabel = q => `${q.n}${attempt.day === 1 && q.n <= 5 ? ` (${LANGS[attempt.lang].slice(0, 3)})` : ''}`;
-  const qMeta = q => esc([q.hab ? `H${q.hab}` : null, q.disciplina || AREAS[q.area].name, q.nivel ? `dificuldade ${q.nivel}` : null, q.ans ? `marcou ${q.ans}` : 'em branco', `gabarito ${q.key}`].filter(Boolean).join(' · '));
+  const qLabel = q => q.label;
+  const qMeta = q => esc([treino ? q.origem.replace('ENEM ', '').replace(', questão', ' Q') : null, q.assunto || q.disciplina || AREAS[q.area].name, q.nivel ? `dificuldade ${q.nivel}` : null, q.ans ? `marcou ${q.ans}` : 'em branco', `gabarito ${q.key}`].filter(Boolean).join(' · '));
   const hasTri = st.notaMedia != null;
   const hasDisc = st.disciplinas.length > 0;
 
@@ -44,24 +52,25 @@ export async function resultsScreen(app, attempt, { go }) {
   const el = h(`<div class="results">
     <div class="results-top">
       <a class="btn ghost sm" href="#/">${icon.back} Início</a>
-      <h1>ENEM ${attempt.year}, ${day.label}</h1>
-      <span class="muted">${date}${attempt.day === 1 ? `, ${LANGS[attempt.lang]}` : ''}</span>
-      <a class="btn sm" href="${reviewLink(exam.ids[0])}">${icon.eye} Revisar no caderno</a>
+      <h1>${esc(nomeProva(attempt))}</h1>
+      <span class="muted">${date}${!treino && attempt.day === 1 ? `, ${LANGS[attempt.lang]}` : ''}</span>
+      <a class="btn sm" href="${reviewLink(exam.ids[0])}">${icon.eye} ${treino ? 'Revisar as questões' : 'Revisar no caderno'}</a>
       <a class="btn sm" href="#/evolucao">Sua evolução</a>
     </div>
 
     ${hasTri ? `<section class="boletim">
       <div class="boletim-main">
         <table>
-          <thead><tr><th>Área</th><th class="num">Acertos</th><th class="num">Nota TRI</th><th class="hide-sm"></th></tr></thead>
+          <thead><tr><th>Área</th><th class="num">Acertos</th><th class="num">Nota TRI</th>${dist ? '<th class="num pct-col">Você foi melhor que</th>' : ''}<th class="hide-sm"></th></tr></thead>
           <tbody>
           ${st.areas.map(a => `<tr><td class="area">${a.label}</td><td class="num">${a.certas} de ${a.total}</td>
             <td class="num nota">${nota(st.tri[a.name]?.nota)}</td>
+            ${dist ? `<td class="num pct">${pctTxt(pctOf(a.name, st.tri[a.name]?.nota))}</td>` : ''}
             <td class="gain">${st.tri[a.name]?.ganho >= 1 ? `+${Math.round(st.tri[a.name].ganho)} com as fáceis` : ''}</td></tr>`).join('')}
-          <tr class="total"><td class="area">Média das áreas</td><td class="num">${st.certas} de ${st.total}</td><td class="num nota">${nota(st.notaMedia)}</td><td></td></tr>
+          <tr class="total"><td class="area">Média das áreas</td><td class="num">${st.certas} de ${st.total}</td><td class="num nota">${nota(st.notaMedia)}</td>${dist ? `<td class="num pct">${pctTxt(pctOf(dayKey, st.notaMedia))}</td>` : ''}<td></td></tr>
           </tbody>
         </table>
-        <p class="method">Estimativa com os parâmetros oficiais de cada questão, pelo mesmo método do INEP.</p>
+        <p class="method">Estimativa com os parâmetros oficiais de cada questão, pelo mesmo método do INEP.${dist ? ` O percentual compara com as notas oficiais de ${participantes(dist[dayKey].n)} que fizeram o ${attempt.day}º dia do ENEM ${attempt.year} (microdados do INEP).` : ''}</p>
       </div>
       <aside class="boletim-side">
         <div class="stat"><div class="k">Tempo de prova</div><div class="v">${clock(st.elapsed)}</div>
@@ -87,9 +96,9 @@ export async function resultsScreen(app, attempt, { go }) {
     </section>` : ''}
 
     <div class="grid2">
-      <section class="panel"><h2>Matérias que você mais errou</h2>
-        <p class="sub">${hasDisc ? 'Erradas e em branco, da pior para a melhor. A matéria de cada questão é uma classificação automática, aproximada.' : 'Sem classificação por matéria para esta prova.'}</p>
-        ${hasDisc ? legend + st.disciplinas.map(g => stackBar(g, true)).join('') : ''}
+      <section class="panel"><h2>Matérias e assuntos</h2>
+        <p class="sub">Acertos por matéria e, dentro dela, por assunto (do pior para o melhor). Toque numa matéria para abrir os assuntos.</p>
+        ${materiasHTML(materias, { aberto: treino ? 1 : 2 })}
       </section>
       <section class="panel"><h2>${hasTri ? 'Como você fez a prova' : 'Por área'}</h2>
         ${hasTri ? '' : `<p class="sub">${worstArea ? `Seu ponto mais fraco nesta prova: <b>${worstArea.label}</b>.` : ''}</p>${legend}${st.areas.map(g => stackBar(g)).join('')}`}
@@ -104,6 +113,10 @@ export async function resultsScreen(app, attempt, { go }) {
       </section>
     </div>
 
+    ${resumoHTML(materias) ? `<section class="panel"><h2>Seus pontos fortes e fracos</h2>
+      <p class="sub">Assuntos com pelo menos 2 questões nesta ${treino ? 'lista' : 'prova'}: 40% de acerto ou menos pede estudo; 70% ou mais é ponto forte. Some várias provas na tela de evolução para um retrato mais completo.</p>
+      ${resumoHTML(materias)}</section>` : ''}
+
     <section class="panel"><h2>Tempo em cada questão</h2>
       <p class="sub">Altura = tempo gasto; cor = resultado. Passe o mouse para detalhes e clique para abrir a questão no caderno.</p>
       <div class="legend"><span><i style="background:var(--good)"></i>Certa</span><span><i style="background:var(--bad)"></i>Errada</span><span><i style="background:var(--blank)"></i>Em branco</span><span><i style="background:transparent;border-top:2px dashed var(--ink-2);border-radius:0;height:0"></i>Sua mediana</span></div>
@@ -116,7 +129,7 @@ export async function resultsScreen(app, attempt, { go }) {
         <div class="hab"><div class="hab-head"><span class="hab-code">H${g.hab}</span><span class="muted">${AREAS[g.area].name}</span>
           <span class="hab-count tabular">${g.erros} de ${g.total}</span></div>
           <p>${esc(g.desc || '')}</p>
-          <div class="hab-qs">${g.qs.map(q => `<a href="${reviewLink(q.id)}" class="badge ${STATUS[q.status].cls}" title="${STATUS[q.status].label}">Q${q.n}</a>`).join('')}</div></div>`).join('') || '<p class="empty">Você não errou nenhuma habilidade.</p>'}</div>
+          <div class="hab-qs">${g.qs.map(q => `<a href="${reviewLink(q.id)}" class="badge ${STATUS[q.status].cls}" title="${STATUS[q.status].label}">Q${q.label}</a>`).join('')}</div></div>`).join('') || '<p class="empty">Você não errou nenhuma habilidade.</p>'}</div>
     </section>` : ''}
 
     <div class="insights" style="margin-top:18px">
@@ -130,7 +143,7 @@ export async function resultsScreen(app, attempt, { go }) {
     </div>
 
     <section class="panel"><h2>Ritmo de prova</h2>
-      <p class="sub">Questões respondidas ao longo do tempo, comparado ao ritmo necessário para fechar a prova no tempo${attempt.day === 1 ? ' (sem descontar a redação)' : ''}.</p>
+      <p class="sub">Questões respondidas ao longo do tempo, comparado ao ritmo necessário para fechar a prova no tempo${!treino && attempt.day === 1 ? ' (sem descontar a redação)' : ''}.</p>
       <div class="legend"><span><i style="background:var(--series-1)"></i>Você</span><span><i style="background:transparent;border-top:2px dashed var(--muted);border-radius:0;height:0"></i>Ritmo para terminar no tempo</span></div>
       <div class="chart-scroll"><div class="chart" id="pace-chart"></div></div>
     </section>
@@ -138,7 +151,7 @@ export async function resultsScreen(app, attempt, { go }) {
     <section class="panel"><h2>Todas as questões</h2>
       <div class="filters">${[['todas', 'Todas'], ['errada', 'Erradas'], ['certa', 'Certas'], ['branco', 'Em branco'], ...(hasTri ? [['facil', 'Fáceis que errou']] : []), ['flag', 'Marcadas p/ revisar'], ['troca', 'Trocou resposta']]
         .map(([k, l], i) => `<button class="chip" data-f="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
-      <div class="table-wrap"><table class="qtable"><thead><tr><th>Questão</th><th>Matéria</th><th>Habilidade</th><th>Dificuldade</th><th>Sua</th><th>Gabarito</th><th>Resultado</th><th>Tempo</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="table-wrap"><table class="qtable"><thead><tr><th>Questão</th><th>Assunto</th><th>Habilidade</th><th>Dificuldade</th><th>Sua</th><th>Gabarito</th><th>Resultado</th><th>Tempo</th><th></th></tr></thead><tbody></tbody></table></div>
       <p class="note">${hasTri ? `A nota usa o mesmo modelo do INEP (TRI de 3 parâmetros, estimativa EAP) com os parâmetros oficiais de cada questão publicados nos microdados. Conferida contra as notas reais de ~150 mil participantes de 2021 a 2025: diferença média de 0,03 ponto. Questões anuladas, ou retiradas do cálculo pelo INEP, não entram na nota; em branco conta como erro.` : 'Questões anuladas pelo INEP não entram na conta.'}</p>
     </section>
   </div>`);
@@ -151,8 +164,8 @@ export async function resultsScreen(app, attempt, { go }) {
     const facil = new Set(st.facilErrada.map(q => q.id));
     const rows = st.qs.filter(q => f === 'todas' || (f === 'flag' ? q.flagged : f === 'troca' ? q.changes > 0 : f === 'facil' ? facil.has(q.id) : q.status === f));
     tbody.innerHTML = rows.map(q => `<tr>
-      <td><b>${qLabel(q)}</b>${q.flagged ? ' <span title="marcada p/ revisar" style="color:var(--warn)">⚑</span>' : ''}</td>
-      <td>${esc(q.disciplina || AREAS[q.area].name)}</td>
+      <td><b>${qLabel(q)}</b>${treino ? ` <span class="muted">${q.src.year}</span>` : ''}${q.flagged ? ' <span title="marcada p/ revisar" style="color:var(--warn)">⚑</span>' : ''}</td>
+      <td>${esc(q.disciplina || AREAS[q.area].name)}<br><span class="muted">${esc(q.assunto || '')}</span></td>
       <td>${q.hab ? `<span title="${esc(q.habDesc || '')}">H${q.hab}</span>` : '—'}</td>
       <td>${q.dif ? `${Math.round(q.dif)} <span class="muted">${q.nivel}</span>` : q.status === 'anulada' ? '—' : '<span class="muted" title="O INEP retirou este item do cálculo da nota">fora da TRI</span>'}</td>
       <td class="ans">${q.ans || '—'}${q.changes ? ` <span class="muted" title="trocou de resposta">(${q.changes}×)</span>` : ''}</td>

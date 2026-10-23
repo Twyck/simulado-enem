@@ -23,7 +23,7 @@ export const gabaritoInep = (year, day) => `https://download.inep.gov.br/enem/pr
 
 export const areaOf = n => Object.keys(AREAS).find(a => n >= AREAS[a].from && n <= AREAS[a].to);
 
-let gabaritos, disciplinas, itens, habilidades;
+let gabaritos, disciplinas, itens, habilidades, percentis;
 const layouts = {};
 
 export async function loadGabaritos() {
@@ -31,10 +31,20 @@ export async function loadGabaritos() {
   return gabaritos;
 }
 
+// matéria e assunto de cada questão (classificados lendo o enunciado): { ano: { d1: { id: [matéria, assunto] } } }
 export async function loadDisciplinas() {
-  disciplinas ??= await fetch('data/disciplinas.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  disciplinas ??= await fetch('data/assuntos.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
   return disciplinas;
 }
+
+// matérias na ordem das áreas do ENEM
+export const MATERIAS = [
+  { name: 'Língua Portuguesa', area: 'LC' }, { name: 'Literatura', area: 'LC' }, { name: 'Artes', area: 'LC' },
+  { name: 'Educação Física', area: 'LC' }, { name: 'Inglês', area: 'LC' }, { name: 'Espanhol', area: 'LC' },
+  { name: 'História', area: 'CH' }, { name: 'Geografia', area: 'CH' }, { name: 'Filosofia', area: 'CH' }, { name: 'Sociologia', area: 'CH' },
+  { name: 'Física', area: 'CN' }, { name: 'Química', area: 'CN' }, { name: 'Biologia', area: 'CN' },
+  { name: 'Matemática', area: 'MT' },
+];
 
 // parâmetros TRI e habilidade de cada item (microdados do INEP)
 export async function loadItens() {
@@ -46,6 +56,24 @@ export async function loadItens() {
 export async function loadHabilidades() {
   habilidades ??= await fetch('data/habilidades.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
   return habilidades;
+}
+
+// distribuição das notas oficiais de todos os participantes de cada ano (microdados do INEP)
+export async function loadPercentis() {
+  percentis ??= await fetch('data/percentis.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  return percentis;
+}
+
+// % de participantes com nota menor que `nota` (metade do próprio ponto conta como empate)
+export function percentil(dist, nota) {
+  if (!dist?.h || nota == null) return null;
+  const i = Math.floor(nota) - dist.min;
+  if (i < 0) return 0;
+  if (i >= dist.h.length) return 100;
+  let below = 0;
+  for (let k = 0; k < i; k++) below += dist.h[k];
+  below += dist.h[i] * (nota - Math.floor(nota));
+  return (below / dist.n) * 100;
 }
 
 export async function loadLayout(year, day) {
@@ -83,7 +111,9 @@ export async function loadExam(year, day, lang) {
       n: qNumber(id),
       area,
       key: answerKey(gab, year, day, id),
-      disciplina: disc[year]?.[`d${day}`]?.[id] ?? null,
+      disciplina: disc[year]?.[`d${day}`]?.[id]?.[0] ?? null,
+      assunto: disc[year]?.[`d${day}`]?.[id]?.[1] ?? null,
+      label: `${qNumber(id)}${day === 1 && qNumber(id) <= 5 ? ` (${id.endsWith('es') ? 'Esp' : 'Ing'})` : ''}`,
       // a/b/c ausentes = item retirado do cálculo da nota pelo INEP
       tri: item && item.b !== undefined ? { a: item.a, b: item.b, c: item.c } : null,
       hab,
@@ -102,3 +132,54 @@ export function cmpKey(a, b) {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
   return 0;
 }
+
+// ---------- treino por matéria: questões de vários cadernos ----------
+// Todas as questões (não anuladas) de uma matéria/assunto nos anos escolhidos.
+export async function findQuestions({ materia, assunto = null, years = YEARS }) {
+  const [disc, gab] = await Promise.all([loadDisciplinas(), loadGabaritos()]);
+  const out = [];
+  for (const year of years) {
+    for (const day of [1, 2]) {
+      for (const [id, [m, a]] of Object.entries(disc[year]?.[`d${day}`] || {})) {
+        if (m !== materia || (assunto && a !== assunto)) continue;
+        if (answerKey(gab, year, day, id) === 'X') continue;
+        out.push({ year, day, id });
+      }
+    }
+  }
+  return out.sort((p, q) => q.year - p.year || p.day - q.day || qNumber(p.id) - qNumber(q.id));
+}
+
+export async function assuntosDe(materia, years = YEARS) {
+  const disc = await loadDisciplinas();
+  const count = new Map();
+  for (const year of years) for (const d of ['d1', 'd2']) {
+    for (const [m, a] of Object.values(disc[year]?.[d] || {})) if (m === materia) count.set(a, (count.get(a) || 0) + 1);
+  }
+  return [...count].sort((x, y) => y[1] - x[1]);
+}
+
+export const uid = it => `${it.year}-${it.day}-${it.id}`;
+
+// Monta uma "prova" a partir dos itens de um treino (cada questão aponta para o seu caderno).
+export async function loadTreino(items) {
+  const langOf = it => (it.id.endsWith('es') ? 'es' : 'en');
+  const keyOf = it => `${it.year}|${it.day}|${langOf(it)}`;
+  const keys = [...new Set(items.map(keyOf))];
+  const exams = Object.fromEntries(await Promise.all(keys.map(async k => {
+    const [year, day, lang] = k.split('|');
+    return [k, await loadExam(+year, +day, lang)];
+  })));
+  const questions = items.map((it, i) => {
+    const base = exams[keyOf(it)].byId[it.id];
+    return { ...base, id: uid(it), src: it, idx: i + 1, label: `${i + 1}`, origem: `ENEM ${it.year}, questão ${base.label}` };
+  });
+  return { treino: true, ids: questions.map(q => q.id), questions, byId: Object.fromEntries(questions.map(q => [q.id, q])) };
+}
+
+// a prova (ou o treino) de uma tentativa
+export const loadFor = a => (a.mode === 'treino' ? loadTreino(a.items) : loadExam(a.year, a.day, a.lang));
+
+export const nomeProva = a => (a.mode === 'treino'
+  ? `Treino de ${a.materia}${a.assunto ? `: ${a.assunto}` : ''}`
+  : `ENEM ${a.year}, ${DAYS[a.day].label}`);

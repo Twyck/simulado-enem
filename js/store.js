@@ -45,3 +45,29 @@ export async function deleteAttempt(id) {
 
 export const getInk = (id, page) => kv.get(`ink:${id}:${page}`);
 export const saveInk = (id, page, strokes) => kv.set(`ink:${id}:${page}`, strokes);
+
+// ---------- backup: tudo o que o app guarda, num arquivo ----------
+const BACKUP_KIND = 'simulado-enem-backup';
+
+export async function exportBackup() {
+  const keys = (await kv.keys()).filter(k => /^(attempt|ink):/.test(String(k)));
+  const entries = await Promise.all(keys.map(async k => [k, await kv.get(k)]));
+  return { kind: BACKUP_KIND, version: 1, exportedAt: new Date().toISOString(), entries };
+}
+
+// Junta o backup ao que já existe. Uma prova que existe nos dois lados fica com a versão mais avançada.
+export async function importBackup(data) {
+  if (data?.kind !== BACKUP_KIND || !Array.isArray(data.entries)) throw new Error('Este arquivo não é um backup do Simulado ENEM.');
+  let added = 0, updated = 0;
+  const attempts = new Map(data.entries.filter(([k]) => String(k).startsWith('attempt:')).map(([k, v]) => [k, v]));
+  for (const [k, a] of attempts) {
+    if (!a?.id || !a.year || !a.day) continue;
+    const cur = await kv.get(k);
+    const newer = !cur || (a.status === 'done' && cur.status !== 'done') || (a.status === cur.status && (a.elapsed || 0) > (cur.elapsed || 0));
+    if (!newer) continue;
+    await kv.set(k, a);
+    for (const [ik, iv] of data.entries) if (String(ik).startsWith(`ink:${a.id}:`)) await kv.set(ik, iv);
+    cur ? updated++ : added++;
+  }
+  return { added, updated };
+}

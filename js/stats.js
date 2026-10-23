@@ -28,6 +28,11 @@ export function computeStats(exam, attempt) {
   for (const area of new Set(qs.map(q => q.area))) {
     const aqs = qs.filter(q => q.area === area);
     if (!aqs.some(q => q.tri)) continue;
+    // treino por matéria: só a dificuldade oficial de cada questão; nota TRI exige a prova inteira
+    if (exam.treino) {
+      for (const q of aqs) if (q.tri) { q.dif = dificuldade(area, q.tri.b); q.nivel = nivel(area, q.dif); }
+      continue;
+    }
     const nota = notaTRI(area, triItens(aqs));
     for (const q of aqs) {
       if (!q.tri) continue;
