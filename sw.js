@@ -1,5 +1,5 @@
 // Service worker: app disponível offline; cadernos em PDF ficam salvos depois do primeiro uso.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = `enem-shell-${VERSION}`;
 const PDFS = 'enem-pdfs-v1';
 const YEARS = [2021, 2022, 2023, 2024, 2025];

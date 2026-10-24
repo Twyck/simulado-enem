@@ -3,6 +3,8 @@
 import { AREAS, DAYS, loadFor, nomeProva, loadHabilidades, loadPercentis, percentil } from './data.js';
 import { listAttempts } from './store.js';
 import { computeStats } from './stats.js';
+import { newTreino } from './store.js';
+import { uid } from './data.js';
 import { porMateria, materiasHTML, resumoHTML } from './topics.js';
 import { h, icon, pct, fmtPct, esc } from './ui.js';
 
@@ -77,6 +79,16 @@ export async function evolutionScreen(app) {
   const discs = [...disc.values()].sort((a, b) => b.erros / b.total - a.erros / a.total || b.total - a.total);
   const facilTotal = runs.reduce((s, r) => s + r.st.facilErrada.length, 0);
   const materias = porMateria(runs.flatMap(r => r.st.qs));
+  // caderno de erros: questões cuja resposta mais recente (prova ou treino) ficou errada ou em branco
+  const ultima = new Map();
+  for (const { a, st } of runs) {
+    for (const q of st.qs) {
+      if (q.status === 'anulada') continue;
+      const item = a.mode === 'treino' ? q.src : { year: a.year, day: a.day, id: q.id };
+      ultima.set(uid(item), { item, ok: q.status === 'certa', disciplina: q.disciplina });
+    }
+  }
+  const pendentes = [...ultima.values()].filter(v => !v.ok);
 
   const el = h(`<div class="results evolution">
     <div class="results-top">
@@ -112,6 +124,7 @@ export async function evolutionScreen(app) {
 
     <div class="grid2" style="margin-top:18px">
       <section class="panel"><h2>O que priorizar</h2>
+        ${pendentes.length ? `<div class="redo-box"><p><b>${pendentes.length} questões</b> continuam erradas ou em branco na sua última tentativa.</p><button class="btn primary sm redo-all">Refazer caderno de erros</button></div>` : ''}
         <p class="sub">Habilidades com mais erros, somando todas as provas. As que caíram poucas vezes pesam menos até você ver mais questões delas.</p>
         <ul class="prio">${prio.slice(0, 10).map(g => `<li data-k="${g.area}-${g.hab}">
           <div class="prio-head"><b>H${g.hab}</b> <span class="muted">${AREAS[g.area].name}</span><span class="tabular prio-n">${g.erros} de ${g.total}</span></div>
@@ -140,6 +153,11 @@ export async function evolutionScreen(app) {
   app.append(el);
   window.scrollTo(0, 0);
 
+  el.querySelector('.redo-all')?.addEventListener('click', async () => {
+    const items = pendentes.map(p => p.item).sort((x, y) => y.year - x.year || x.day - y.day || parseInt(x.id, 10) - parseInt(y.id, 10));
+    const a = await newTreino(items, { titulo: 'Caderno de erros', materia: 'Todas as matérias' });
+    location.hash = `#/prova/${a.id}`;
+  });
   const detail = el.querySelector('.heat-detail');
   const showHab = k => {
     const g = habs.get(k);

@@ -118,6 +118,7 @@ async function home({ intro = false } = {}) {
         <div class="field lang-field"><span class="label">Língua<small>questões 1 a 5</small></span><div class="choices langs">${Object.entries(LANGS).map(([k, v]) => `<button class="choice" data-lang="${k}">${oval}<span>${v}</span></button>`).join('')}</div></div>
         <div class="field"><span class="label">Tempo</span><div class="choices time-row">
           <button class="choice" data-time="oficial">${oval}<span>Oficial</span></button>
+          <button class="choice" data-time="semredacao">${oval}<span>Sem a redação, 4h30<span class="sub">desconta 1 hora reservada à redação</span></span></button>
           <button class="choice" data-time="livre">${oval}<span>Sem limite</span></button>
           <button class="choice" data-time="custom">${oval}<span>Personalizado</span></button>
           <input type="number" min="10" max="600" step="5" class="custom" aria-label="Minutos"> <span class="muted custom-l">minutos</span></div></div>
@@ -181,6 +182,8 @@ async function home({ intro = false } = {}) {
     el.querySelectorAll('[data-year]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.year === sel.year));
     el.querySelectorAll('[data-day]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.day === sel.day));
     el.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === sel.lang));
+    if (sel.day !== 1 && sel.time === 'semredacao') sel.time = 'oficial';
+    el.querySelector('[data-time="semredacao"]').classList.toggle('hidden', sel.day !== 1);
     el.querySelectorAll('[data-time]').forEach(b => b.setAttribute('aria-pressed', b.dataset.time === sel.time));
     el.querySelector('.lang-field').classList.toggle('hidden', sel.day !== 1);
     el.querySelector('.custom').classList.toggle('hidden', sel.time !== 'custom');
@@ -229,7 +232,9 @@ async function home({ intro = false } = {}) {
       await saveAttempt(a);
       return go(`#/prova/${a.id}`);
     }
-    const limitSec = sel.time === 'oficial' ? DAYS[sel.day].minutes * 60 : sel.time === 'custom' ? sel.custom * 60 : 0;
+    const limitSec = sel.time === 'oficial' ? DAYS[sel.day].minutes * 60
+      : sel.time === 'semredacao' ? (DAYS[sel.day].minutes - 60) * 60
+      : sel.time === 'custom' ? sel.custom * 60 : 0;
     const a = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       year: sel.year, day: sel.day, lang: sel.day === 1 ? sel.lang : null,

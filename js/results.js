@@ -2,6 +2,7 @@
 import { DAYS, LANGS, AREAS, loadFor, nomeProva, loadPercentis, percentil } from './data.js';
 import { porMateria, materiasHTML, resumoHTML } from './topics.js';
 import { computeStats } from './stats.js';
+import { newTreino } from './store.js';
 import { h, icon, clock, dur, pct, fmtPct, esc } from './ui.js';
 
 const nota = v => (v == null ? '—' : v.toFixed(1).replace('.', ','));
@@ -20,6 +21,9 @@ export async function resultsScreen(app, attempt, { go }) {
   const st = computeStats(exam, attempt);
   const dist = treino ? null : (await loadPercentis())[attempt.year] || null;
   const materias = porMateria(st.qs);
+  // caderno de erros: as erradas e em branco desta prova viram um treino
+  const erradas = st.qs.filter(q => q.status === 'errada' || q.status === 'branco');
+  const itemOf = q => (treino ? q.src : { year: attempt.year, day: attempt.day, id: q.id });
   const pctOf = (key, v) => percentil(dist?.[key], v);
   const pctTxt = p => (p == null ? '' : p >= 99.95 ? 'acima de 99,9%' : `${String(Math.round(p * 10) / 10).replace('.', ',')}%`);
   const dayKey = `d${attempt.day}`;
@@ -56,6 +60,7 @@ export async function resultsScreen(app, attempt, { go }) {
       <span class="muted">${date}${!treino && attempt.day === 1 ? `, ${LANGS[attempt.lang]}` : ''}</span>
       <a class="btn sm" href="${reviewLink(exam.ids[0])}">${icon.eye} ${treino ? 'Revisar as questões' : 'Revisar no caderno'}</a>
       <a class="btn sm" href="#/evolucao">Sua evolução</a>
+      ${erradas.length ? `<button class="btn sm primary redo">Refazer as ${erradas.length} que errei</button>` : ''}
     </div>
 
     ${hasTri ? `<section class="boletim">
@@ -157,6 +162,14 @@ export async function resultsScreen(app, attempt, { go }) {
   </div>`);
   app.append(el);
   window.scrollTo(0, 0);
+
+  el.querySelector('.redo')?.addEventListener('click', async () => {
+    const a = await newTreino(erradas.map(itemOf), {
+      titulo: `Refazer erros: ${nomeProva(attempt)}`,
+      materia: (m => (m.length > 2 ? `${m.length} matérias` : m.join(' e ') || 'Várias matérias'))([...new Set(erradas.map(q => q.disciplina).filter(Boolean))]),
+    });
+    go(`#/prova/${a.id}`);
+  });
 
   // tabela
   const tbody = el.querySelector('.qtable tbody');

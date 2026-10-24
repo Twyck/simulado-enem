@@ -649,3 +649,9 @@ i.unseen, .cell[data-unseen] { background: transparent; border: 1.5px dashed var
   .mat summary { grid-template-columns: 1fr auto; }
   .mat-bar { grid-column: 1 / -1; grid-row: 2; }
 }
+.redo-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 14px; margin: 0 0 14px; background: var(--bad-soft); border-radius: 10px; }
+.redo-box p { margin: 0; font-family: var(--text); font-size: 14.5px; }
+.qnow .idle { margin-left: 4px; font-size: 12px; font-weight: 700; color: var(--warn); }
+.err-nav { display: flex; align-items: center; gap: 4px; }
+.err-pos { font-size: 13px; color: var(--ink-2); min-width: 54px; text-align: center; }
+@media (max-width: 720px) { .err-next { padding: 0 10px; } }

@@ -1,19 +1,20 @@
 // Tela da prova: caderno em PDF + cronômetro + cartão-resposta, e o modo revisão depois de terminar.
-import { AREAS, DAYS, LANGS, loadExam, loadTreino } from './data.js';
+import { AREAS, DAYS, LANGS, loadExam, loadTreino, nomeProva } from './data.js';
 import { Viewer, openPdf } from './viewer.js';
 import { CropViewer } from './cards.js';
 import { saveAttempt } from './store.js';
 import { h, icon, clock, dur, modal, toast, esc } from './ui.js';
 
 const OFFSCREEN_SECONDS = 3; // após quanto tempo fora da tela a questão "em foco" muda pela rolagem
+const IDLE_SECONDS = 180; // sem tocar, rolar ou digitar por 3 min, o relógio da questão para (o da prova continua)
 
 export async function examScreen(app, attempt, { review = false, focusQ = null, go, setLeave }) {
   // treino por matéria: questões recortadas de vários cadernos; senão, a prova completa de um dia
   const treino = attempt.mode === 'treino';
   const exam = treino ? await loadTreino(attempt.items) : await loadExam(attempt.year, attempt.day, attempt.lang);
   const day = treino ? null : DAYS[attempt.day];
-  const titulo = treino ? `Treino de ${attempt.materia}` : `ENEM ${attempt.year} · ${day.label}`;
-  const subtitulo = treino ? `${attempt.assunto || 'Todos os assuntos'}, ${exam.ids.length} questões` : `Caderno 1 Azul${attempt.day === 1 ? ` · ${LANGS[attempt.lang]}` : ''}`;
+  const titulo = treino ? nomeProva(attempt) : `ENEM ${attempt.year} · ${day.label}`;
+  const subtitulo = treino ? `${attempt.titulo ? attempt.materia : attempt.assunto || 'Todos os assuntos'}, ${exam.ids.length} questões` : `Caderno 1 Azul${attempt.day === 1 ? ` · ${LANGS[attempt.lang]}` : ''}`;
   const limit = attempt.limitSec;
   const ids = exam.ids;
 
@@ -36,7 +37,8 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
         <button class="tool zoom" data-zoom="1" title="Aumentar zoom">${icon.zoomIn}</button>
       </div>
       <div class="bar-group end">
-        ${review ? '' : `<button class="btn sm ghost pause" title="Pausar">${icon.pause}</button>`}
+        ${review ? `<div class="err-nav" role="group" aria-label="Navegar pelos erros">
+          <button class="btn sm ghost err-prev" title="Erro anterior">‹</button><span class="err-pos tabular"></span><button class="btn sm err-next" title="Próximo erro">Próximo erro ›</button></div>` : `<button class="btn sm ghost pause" title="Pausar">${icon.pause}</button>`}
         <button class="btn sm sheet-toggle" title="Cartão-resposta">${icon.sheet}<span class="cnt tabular"></span></button>
       </div>
     </header>
@@ -164,10 +166,12 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     dirty = true;
   }
 
+  let lastInput = performance.now();
+  let idle = false;
   function updateQNow() {
     const q = exam.byId[attempt.current];
     if (!q || review) { $('.qnow').textContent = ''; return; }
-    $('.qnow').innerHTML = `Questão <b>${treino ? q.idx : q.n}</b> · ${clock(attempt.time[q.id] || 0, false)}`;
+    $('.qnow').innerHTML = `Questão <b>${treino ? q.idx : q.n}</b> · ${clock(attempt.time[q.id] || 0, false)}${idle ? ' <span class="idle" title="Sem interação há mais de 3 minutos: o tempo desta questão está parado">parado</span>' : ''}`;
   }
 
   // ---------------- cronômetro ----------------
@@ -180,7 +184,8 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     last = now;
     if (destroyed || review || attempt.status !== 'running' || document.hidden || !viewer) return;
     attempt.elapsed += dt;
-    if (attempt.current) attempt.time[attempt.current] = (attempt.time[attempt.current] || 0) + dt;
+    idle = (now - lastInput) / 1000 > IDLE_SECONDS;
+    if (attempt.current && !idle) attempt.time[attempt.current] = (attempt.time[attempt.current] || 0) + dt;
 
     // se a questão em foco saiu da tela, o foco vai para a primeira questão visível
     const vis = viewer.visibleQuestions();
@@ -277,6 +282,10 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     }
   }
   document.addEventListener('keydown', onKey);
+  // qualquer interação conta como "estou fazendo a prova"
+  const touch = () => { lastInput = performance.now(); };
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => el.addEventListener(ev, touch, { passive: true }));
+  scroller.addEventListener('scroll', touch, { passive: true });
 
   $('.back').onclick = async () => {
     if (!review) {
@@ -302,6 +311,22 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     if (!review) save();
     cleanup();
   });
+
+  // revisão: pular direto entre as questões erradas ou em branco
+  if (review) {
+    const erros = ids.filter(id => { const q = exam.byId[id]; return q.key !== 'X' && attempt.answers[id] !== q.key; });
+    let pos = focusQ ? erros.indexOf(focusQ) : -1;
+    const show = () => { $('.err-pos').textContent = erros.length ? `${pos >= 0 ? pos + 1 : '–'} de ${erros.length}` : 'nenhum erro'; };
+    const goErr = d => {
+      if (!erros.length) return;
+      pos = (pos + d + erros.length) % erros.length;
+      viewer?.scrollToQuestion(erros[pos]);
+      show();
+    };
+    el.querySelector('.err-next').onclick = () => goErr(1);
+    el.querySelector('.err-prev').onclick = () => goErr(pos < 0 ? 0 : -1);
+    show();
+  }
 
   buildSheet();
   refreshCounts();

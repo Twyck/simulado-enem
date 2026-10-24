@@ -181,5 +181,5 @@ export async function loadTreino(items) {
 export const loadFor = a => (a.mode === 'treino' ? loadTreino(a.items) : loadExam(a.year, a.day, a.lang));
 
 export const nomeProva = a => (a.mode === 'treino'
-  ? `Treino de ${a.materia}${a.assunto ? `: ${a.assunto}` : ''}`
+  ? a.titulo || `Treino de ${a.materia}${a.assunto ? `: ${a.assunto}` : ''}`
   : `ENEM ${a.year}, ${DAYS[a.day].label}`);

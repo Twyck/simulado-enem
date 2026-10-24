@@ -46,6 +46,18 @@ export async function deleteAttempt(id) {
 export const getInk = (id, page) => kv.get(`ink:${id}:${page}`);
 export const saveInk = (id, page, strokes) => kv.set(`ink:${id}:${page}`, strokes);
 
+// Novo treino a partir de uma lista de questões ({ year, day, id }), ex.: caderno de erros
+export async function newTreino(items, extra = {}) {
+  const a = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    mode: 'treino', materia: 'Várias matérias', assunto: null, items,
+    limitSec: 0, startedAt: Date.now(), elapsed: 0, status: 'running',
+    answers: {}, crossed: {}, time: {}, changes: {}, flags: {}, history: [], ...extra,
+  };
+  await saveAttempt(a);
+  return a;
+}
+
 // ---------- backup: tudo o que o app guarda, num arquivo ----------
 const BACKUP_KIND = 'simulado-enem-backup';
 
@@ -61,7 +73,8 @@ export async function importBackup(data) {
   let added = 0, updated = 0;
   const attempts = new Map(data.entries.filter(([k]) => String(k).startsWith('attempt:')).map(([k, v]) => [k, v]));
   for (const [k, a] of attempts) {
-    if (!a?.id || !a.year || !a.day) continue;
+    // prova completa tem ano e dia; treino tem a lista de questões
+    if (!a?.id || !((a.year && a.day) || (a.mode === 'treino' && Array.isArray(a.items)))) continue;
     const cur = await kv.get(k);
     const newer = !cur || (a.status === 'done' && cur.status !== 'done') || (a.status === cur.status && (a.elapsed || 0) > (cur.elapsed || 0));
     if (!newer) continue;
