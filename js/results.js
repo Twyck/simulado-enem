@@ -60,6 +60,7 @@ export async function resultsScreen(app, attempt, { go }) {
       <span class="muted">${date}${!treino && attempt.day === 1 ? `, ${LANGS[attempt.lang]}` : ''}</span>
       <a class="btn sm" href="${reviewLink(exam.ids[0])}">${icon.eye} ${treino ? 'Revisar as questões' : 'Revisar no caderno'}</a>
       <a class="btn sm" href="#/evolucao">Sua evolução</a>
+      ${!treino ? '<a class="btn sm" href="#/sisu">Simular SISU</a>' : ''}
       ${erradas.length ? `<button class="btn sm primary redo">Refazer as ${erradas.length} que errei</button>` : ''}
     </div>
 

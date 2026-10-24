@@ -20,6 +20,13 @@ Abra http://localhost:5173. Tudo fica salvo no navegador (IndexedDB), inclusive 
 Em "Nova prova", escolha **Treino por matéria**: matéria, assunto (opcional), anos e quantidade. O app mostra só
 essas questões, recortadas dos cadernos oficiais, e a análise mostra os assuntos fortes e fracos.
 
+## Simulação do SISU
+
+Em **Simular SISU**, o app pega a nota TRI de cada área da sua prova completa mais recente (você pode digitar outra),
+você digita a redação e escolhe se concorre pelas cotas da Lei 12.711. Ele aplica os pesos e as notas mínimas de
+cada curso e compara com a nota de corte real do SISU 2025: em quais cursos você passaria, quais ficaram perto
+(até 20 pontos) e quais exigem nota mínima que você não tem.
+
 ## Backup
 
 As provas ficam só no navegador. Em "Seus dados", **Baixar backup** gera um arquivo `.json` com tudo (respostas,
@@ -47,6 +54,9 @@ anotações, tempos); **Restaurar backup** junta esse arquivo ao que já existe 
 - `data/assuntos.json` — matéria e assunto de cada uma das 925 questões, classificados lendo o enunciado
   (lista em `scripts/assuntos/*.out`, gerada com `scripts/build_assuntos.py`; textos via OCR com `scripts/ocr.swift`).
 - `data/layout/*.json` também traz o recorte de cada questão (`parts`), usado no treino por matéria.
+- `data/sisu/2025.json` — os 6.863 cursos do SISU 2025 com pesos, notas mínimas e nota de corte de cada modalidade
+  no fim das inscrições, lidos da API oficial do SISU (coletados em github.com/maiakanegae/sisu-data;
+  `python3 scripts/build_sisu.py 2025`). As ações afirmativas próprias de cada instituição e os bônus regionais ficam de fora.
 - `data/percentis.json` — distribuição das notas oficiais de todos os participantes de cada ano
   (2,2 a 3,5 milhões por área), lida dos microdados por `scripts/build_percentis.py`.
 

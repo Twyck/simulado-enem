@@ -1,11 +1,11 @@
 // Service worker: app disponível offline; cadernos em PDF ficam salvos depois do primeiro uso.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL = `enem-shell-${VERSION}`;
 const PDFS = 'enem-pdfs-v1';
 const YEARS = [2021, 2022, 2023, 2024, 2025];
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
-  'js/app.js', 'js/cards.js', 'js/topics.js', 'js/data.js', 'js/evolution.js', 'js/intro.js', 'js/exam.js', 'js/results.js', 'js/stats.js', 'js/store.js', 'js/tri.js', 'js/ui.js', 'js/viewer.js',
+  'js/app.js', 'js/cards.js', 'js/topics.js', 'js/data.js', 'js/evolution.js', 'js/intro.js', 'js/exam.js', 'js/results.js', 'js/sisu.js', 'js/stats.js', 'js/store.js', 'js/tri.js', 'js/ui.js', 'js/viewer.js',
   'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs',
   'fonts/archivo-latin.woff2', 'fonts/atkinson-next-latin.woff2',
   'img/caderno-2024.webp',

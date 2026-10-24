@@ -95,6 +95,7 @@ export async function evolutionScreen(app) {
       <a class="btn ghost sm" href="#/">${icon.back} Início</a>
       <h1>Sua evolução</h1>
       <span class="muted">${runs.length} entrega${runs.length > 1 ? 's' : ''} (provas e treinos), ${seen} das 120 habilidades já cobradas</span>
+      ${lastPerArea.length ? '<a class="btn sm" href="#/sisu">Simular SISU com essas notas</a>' : ''}
     </div>
 
     ${lastPerArea.length ? `<div class="hero">

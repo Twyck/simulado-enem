@@ -4,6 +4,7 @@ import { listAttempts, saveAttempt, getAttempt, deleteAttempt, exportBackup, imp
 import { examScreen } from './exam.js';
 import { resultsScreen } from './results.js';
 import { evolutionScreen } from './evolution.js';
+import { sisuScreen } from './sisu.js';
 import { introHTML, mountIntro } from './intro.js';
 import { computeStats } from './stats.js';
 import { h, icon, clock, pct, fmtPct, modal, toast, esc } from './ui.js';
@@ -35,6 +36,7 @@ async function route() {
       return a ? resultsScreen(app, a, { go }) : go('#/');
     }
     if (view === 'evolucao') return evolutionScreen(app);
+    if (view === 'sisu') return sisuScreen(app);
     if (view === 'sobre') return home({ intro: true });
     if (view === 'revisao' && id) {
       const a = await getAttempt(id);
@@ -80,7 +82,7 @@ async function home({ intro = false } = {}) {
   const el = h(`<div class="home ${showIntro ? 'after-intro' : ''}">
     ${showIntro ? '' : `<header class="topbar">
       <a class="brand" href="#/"><img src="icons/icon.svg" alt="">Simulado ENEM</a>
-      <nav class="row-actions"><a class="btn sm ghost" href="#/sobre">Sobre o app</a>${done.length ? '<a class="btn sm" href="#/evolucao">Sua evolução</a>' : ''}</nav>
+      <nav class="row-actions"><a class="btn sm ghost" href="#/sobre">Sobre o app</a><a class="btn sm" href="#/sisu">Simular SISU</a>${done.length ? '<a class="btn sm" href="#/evolucao">Sua evolução</a>' : ''}</nav>
     </header>
 
     <section class="intro">
