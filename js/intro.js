@@ -16,7 +16,7 @@ export function introHTML() {
   return `<div class="landing">
     <section class="l-hero">
       <h1 class="l-title">ENEM.<br>Do jeito que cai.</h1>
-      <p class="l-lead">As provas oficiais do INEP, de 2021 a 2025, na tela. Com cartão-resposta, cronômetro e a nota calculada pela TRI.</p>
+      <p class="l-lead">As provas oficiais do INEP, de 2017 a 2025, na tela. Com cartão-resposta, cronômetro e a nota calculada pela TRI.</p>
       <div class="l-ctas"><a class="pill" href="#nova" data-go="nova">Fazer uma prova</a><a class="more" href="#como" data-go="como">Como funciona</a></div>
       <figure class="device reveal" aria-label="Tela de prova do Simulado ENEM com o caderno oficial de 2024">
         <div class="device-bar"><span class="d-title">ENEM 2024, 1º dia</span><span class="d-timer">5:30:00</span><span class="d-tools"><i></i><i></i><i></i><i></i></span></div>
@@ -47,7 +47,7 @@ export function introHTML() {
       <p class="l-kicker">Nota pela TRI</p>
       <div class="l-stat">0,03</div>
       <p class="l-stat-text">ponto de diferença, em média, entre a nota calculada aqui e a nota oficial do INEP.</p>
-      <p class="l-small">Conferido com as respostas de cerca de 150 mil participantes de 2021 a 2025, usando os parâmetros de cada questão publicados nos microdados do ENEM.</p>
+      <p class="l-small">Conferido com as respostas de cerca de 250 mil participantes de 2017 a 2025, usando os parâmetros de cada questão publicados nos microdados do ENEM.</p>
     </section>
 
     <section class="l-section">
@@ -62,7 +62,7 @@ export function introHTML() {
         <div class="b-tile b-wide"><div class="b-big">5h30</div><h3>Cronômetro oficial</h3><p>5h30 no 1º dia e 5h no 2º, como no exame. Ou sem limite, para treinar com calma.</p></div>
         <div class="b-tile"><div class="b-ovals"><i></i><i class="on"></i><i></i><i></i><i></i></div><h3>Cartão-resposta</h3><p>Marque pelo PDF ou pelo cartão, e revise com o gabarito.</p></div>
         <div class="b-tile"><div class="b-big">120</div><h3>Habilidades oficiais</h3><p>O mapa da Matriz de Referência mostra o que você mais erra.</p></div>
-        <div class="b-tile"><div class="b-big">10</div><h3>Provas</h3><p>2021 a 2025, primeiro e segundo dia, inglês ou espanhol.</p></div>
+        <div class="b-tile"><div class="b-big">18</div><h3>Provas</h3><p>2017 a 2025, primeiro e segundo dia, inglês ou espanhol.</p></div>
         <div class="b-tile b-wide"><div class="b-big">3:20</div><h3>Tempo de cada questão</h3><p>É o tempo por questão para fechar o 2º dia no limite. O app mede o seu em cada uma e mostra onde você travou e onde passou rápido demais.</p></div>
         <div class="b-tile"><h3>Funciona sem internet</h3><p>Instale no celular e faça a prova em qualquer lugar.</p></div>
         <div class="b-tile"><h3>Grátis e sem conta</h3><p>Suas respostas ficam só no seu aparelho.</p></div>

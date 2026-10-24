@@ -1,16 +1,16 @@
 // Service worker: app disponível offline; cadernos em PDF ficam salvos depois do primeiro uso.
-const VERSION = 'v12';
+const VERSION = 'v13';
 const SHELL = `enem-shell-${VERSION}`;
 const PDFS = 'enem-pdfs-v1';
-const YEARS = [2021, 2022, 2023, 2024, 2025];
+const YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
-  'js/app.js', 'js/cards.js', 'js/topics.js', 'js/data.js', 'js/evolution.js', 'js/intro.js', 'js/exam.js', 'js/results.js', 'js/sisu.js', 'js/stats.js', 'js/store.js', 'js/tri.js', 'js/ui.js', 'js/viewer.js',
+  'js/app.js', 'js/cards.js', 'js/topics.js', 'js/data.js', 'js/evolution.js', 'js/intro.js', 'js/exam.js', 'js/redacao.js', 'js/results.js', 'js/revisao.js', 'js/share.js', 'js/sisu.js', 'js/stats.js', 'js/store.js', 'js/tri.js', 'js/ui.js', 'js/viewer.js',
   'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs',
   'fonts/archivo-latin.woff2', 'fonts/atkinson-next-latin.woff2',
   'img/caderno-2024.webp',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
-  'data/gabaritos.json', 'data/assuntos.json', 'data/itens.json', 'data/habilidades.json', 'data/percentis.json',
+  'data/gabaritos.json', 'data/assuntos.json', 'data/itens.json', 'data/habilidades.json', 'data/percentis.json', 'data/acertos.json',
   ...YEARS.flatMap(y => [`data/layout/${y}_d1.json`, `data/layout/${y}_d2.json`]),
 ];
 

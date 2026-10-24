@@ -1,5 +1,5 @@
 // Catálogo das provas, gabaritos e layout (posição de questões/alternativas no PDF oficial).
-export const YEARS = [2025, 2024, 2023, 2022, 2021];
+export const YEARS = [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017];
 
 export const AREAS = {
   LC: { name: 'Linguagens', full: 'Linguagens, Códigos e suas Tecnologias', from: 1, to: 45 },
@@ -15,10 +15,32 @@ export const DAYS = {
 
 export const LANGS = { en: 'Inglês', es: 'Espanhol' };
 
+// prova de uma área só: o dia em que ela cai e o tempo no ritmo do exame
+// (2º dia: 5h para 90 questões; 1º dia: 5h30 menos ~1h de redação)
+export const dayOfArea = area => (area === 'LC' || area === 'CH' ? 1 : 2);
+export const AREA_MINUTES = { LC: 135, CH: 135, CN: 150, MT: 150 };
+
 const caderno = day => (day === 1 ? 1 : 7);
 const file = (kind, year, day) => `${year}_${kind}_impresso_D${day}_CD${caderno(day)}.pdf`;
 export const pdfLocal = (year, day) => `provas/${file('PV', year, day)}`;
-export const pdfInep = (year, day) => `https://download.inep.gov.br/enem/provas_e_gabaritos/${file('PV', year, day)}`;
+// até 2019 os cadernos ficam em outro endereço do INEP, com nomes próprios de cada ano
+const INEP_ANTIGO = {
+  2017: ['cad_1_prova_azul_5112017.pdf', 'cad_7_prova_azul_12112017.pdf'],
+  2018: ['1DIA_01_AZUL_BAIXA.pdf', '2DIA_07_AZUL_BAIXA.pdf'],
+  2019: ['caderno_de_questoes_1_dia_caderno_1_azul_aplicacao_regular.pdf', 'caderno_de_questoes_2_dia_caderno_7_azul_aplicacao_regular.pdf'],
+};
+export const pdfInep = (year, day) => (INEP_ANTIGO[year]
+  ? `https://download.inep.gov.br/educacao_basica/enem/provas/${year}/${INEP_ANTIGO[year][day - 1]}`
+  : `https://download.inep.gov.br/enem/provas_e_gabaritos/${file('PV', year, day)}`);
+// baixa o caderno para o cache do app em segundo plano (usado para deixar pronto o próximo)
+export async function prefetchPdf(year, day) {
+  if (!('caches' in window) || navigator.connection?.saveData) return;
+  const cache = await caches.open('enem-pdfs-v1');
+  const url = new URL(pdfLocal(year, day), location.href).href;
+  if (await cache.match(url)) return;
+  const res = await fetch(url).catch(() => null);
+  if (res?.ok) await cache.put(url, res);
+}
 export const gabaritoInep = (year, day) => `https://download.inep.gov.br/enem/provas_e_gabaritos/${file('GB', year, day)}`;
 
 export const areaOf = n => Object.keys(AREAS).find(a => n >= AREAS[a].from && n <= AREAS[a].to);
@@ -56,6 +78,24 @@ export async function loadItens() {
 export async function loadHabilidades() {
   habilidades ??= await fetch('data/habilidades.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
   return habilidades;
+}
+
+// como todos os candidatos responderam cada questão do caderno Azul (microdados do INEP):
+// quantos marcaram A, B, C, D, E e quantos deixaram em branco
+let acertos;
+export async function loadAcertos() {
+  acertos ??= await fetch('data/acertos.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  return acertos;
+}
+function povoDe(cont, key) {
+  if (!cont || key === 'X') return null;
+  const n = cont.reduce((s, v) => s + v, 0);
+  if (!n) return null;
+  const pct = i => (cont[i] / n) * 100;
+  const k = 'ABCDE'.indexOf(key);
+  // alternativa errada mais marcada (o "distrator")
+  const d = [0, 1, 2, 3, 4].filter(i => i !== k).sort((a, b) => cont[b] - cont[a])[0];
+  return { n, acerto: pct(k), letras: cont.slice(0, 5).map((_, i) => pct(i)), branco: pct(5), distrator: 'ABCDE'[d], distratorPct: pct(d) };
 }
 
 // distribuição das notas oficiais de todos os participantes de cada ano (microdados do INEP)
@@ -99,9 +139,9 @@ export function answerKey(gab, year, day, id) {
   return v;
 }
 
-export async function loadExam(year, day, lang) {
-  const [gab, layout, disc, its, habs] = await Promise.all([loadGabaritos(), loadLayout(year, day), loadDisciplinas(), loadItens(), loadHabilidades()]);
-  const ids = questionIds(day, lang);
+export async function loadExam(year, day, lang, area = null) {
+  const [gab, layout, disc, its, habs, resp] = await Promise.all([loadGabaritos(), loadLayout(year, day), loadDisciplinas(), loadItens(), loadHabilidades(), loadAcertos()]);
+  const ids = questionIds(day, lang).filter(id => !area || areaOf(qNumber(id)) === area);
   const questions = ids.map(id => {
     const area = areaOf(qNumber(id));
     const item = its[year]?.[`d${day}`]?.[id] ?? null;
@@ -116,12 +156,15 @@ export async function loadExam(year, day, lang) {
       label: `${qNumber(id)}${day === 1 && qNumber(id) <= 5 ? ` (${id.endsWith('es') ? 'Esp' : 'Ing'})` : ''}`,
       // a/b/c ausentes = item retirado do cálculo da nota pelo INEP
       tri: item && item.b !== undefined ? { a: item.a, b: item.b, c: item.c } : null,
+      // prova cujos parâmetros publicados não reproduzem as notas oficiais (ver scripts/build_itens.py)
+      semNota: !!item?.sn,
       hab,
       habDesc: hab ? habs[area]?.habilidades?.[hab]?.d ?? null : null,
       pos: layout.questions[id],
+      povo: povoDe(resp[year]?.[`d${day}`]?.[id], answerKey(gab, year, day, id)),
     };
   });
-  return { year, day, lang, ids, questions, byId: Object.fromEntries(questions.map(q => [q.id, q])), layout };
+  return { year, day, lang, area, ids, questions, byId: Object.fromEntries(questions.map(q => [q.id, q])), layout };
 }
 
 // Ordem de leitura do caderno: página → coluna (esquerda/direita) → de cima para baixo.
@@ -178,8 +221,8 @@ export async function loadTreino(items) {
 }
 
 // a prova (ou o treino) de uma tentativa
-export const loadFor = a => (a.mode === 'treino' ? loadTreino(a.items) : loadExam(a.year, a.day, a.lang));
+export const loadFor = a => (a.mode === 'treino' ? loadTreino(a.items) : loadExam(a.year, a.day, a.lang, a.area));
 
-export const nomeProva = a => (a.mode === 'treino'
+export const nomeProva = a => (a.mode === 'redacao' ? `Redação ENEM ${a.year}` : a.mode === 'treino'
   ? a.titulo || `Treino de ${a.materia}${a.assunto ? `: ${a.assunto}` : ''}`
-  : `ENEM ${a.year}, ${DAYS[a.day].label}`);
+  : a.area ? `ENEM ${a.year}, ${AREAS[a.area].name}` : `ENEM ${a.year}, ${DAYS[a.day].label}`);

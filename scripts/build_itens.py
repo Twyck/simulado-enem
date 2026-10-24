@@ -19,29 +19,41 @@ def itens_csv(year):
     name = next(i.filename for i in z.infolist() if 'ITENS_PROVA' in i.filename and i.filename.endswith('.csv'))
     return z.read(name).decode('latin-1')
 
+sys.path.insert(0, str(Path(__file__).parent))
+from inep_itens import relativo, posicao
+
+# provas em que os parâmetros publicados não reproduzem as notas oficiais (scripts/check_tri.mjs:
+# diferença média de 11 a 63 pontos em todas as cores de caderno, contra 0,03 nas demais). O app não
+# calcula nota TRI nelas: guarda só a habilidade e marca o item com "sn" (sem nota).
+NAO_REPRODUZ = {('2017', 'CH'), ('2017', 'CN'), ('2017', 'MT'), ('2018', 'CN'), ('2019', 'MT')}
+
 out = {}
 for year in sorted(gab):
     rows = list(csv.DictReader(io.StringIO(itens_csv(year)), delimiter=';'))
+    rel = relativo(rows)
     provas = defaultdict(list)
     for r in rows:
-        if r['TX_COR'] == 'AZUL': provas[(r['SG_AREA'], r['CO_PROVA'])].append(r)
+        if r['TX_COR'].upper() == 'AZUL': provas[(r['SG_AREA'], r['CO_PROVA'])].append(r)
     for area, day in DAY.items():
         # o caderno Azul da 1ª aplicação é o que tem o gabarito idêntico ao PDF oficial
         def score(items):
             ok = 0
             for r in items:
-                k = gab[year][day].get(r['CO_POSICAO'])
-                if isinstance(k, list): k = k[0 if r['TP_LINGUA'] == '0' else 1]
+                n, lang = posicao(r, rel)
+                k = gab[year][day].get(str(n))
+                if isinstance(k, list): k = k[0 if lang == 'en' else 1]
                 ok += k in (r['TX_GABARITO'], 'X')
             return ok / len(items)
         cands = sorted(((score(v), cp) for (a, cp), v in provas.items() if a == area), reverse=True)
         best, code = cands[0]
         assert best == 1.0, f'{year} {area}: nenhum caderno Azul bate com o gabarito ({cands[:2]})'
         for r in provas[(area, code)]:
-            n = int(r['CO_POSICAO'])
-            qid = f"{n}{'en' if r['TP_LINGUA'] == '0' else 'es'}" if area == 'LC' and n <= 5 else str(n)
+            n, lang = posicao(r, rel)
+            qid = f'{n}{lang}' if lang else str(n)
             item = {'h': int(r['CO_HABILIDADE']) if r['CO_HABILIDADE'] else None}
-            if r['IN_ITEM_ABAN'] == '1' or not r['NU_PARAM_A']:
+            if (year, area) in NAO_REPRODUZ:
+                item['sn'] = 1
+            elif r['IN_ITEM_ABAN'] == '1' or not r['NU_PARAM_A']:
                 item['aban'] = True  # anulada: fica fora do cálculo
             else:
                 item.update(a=round(float(r['NU_PARAM_A']), 5), b=round(float(r['NU_PARAM_B']), 5), c=round(float(r['NU_PARAM_C']), 5))

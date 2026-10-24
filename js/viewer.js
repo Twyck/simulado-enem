@@ -54,6 +54,12 @@ export class Viewer {
       this.root.append(el);
       this.pages.push({ p, page, vp, el, canvas: el.querySelector('.pdf'), ink: el.querySelector('.ink'), overlay: el.querySelector('.overlay'), rendered: 0 });
     }
+    // prova de uma área: só as páginas que têm questões dela
+    if (this.exam.area) {
+      const ps = this.exam.questions.flatMap(q => (q.pos ? [q.pos.p, ...q.pos.alts.map(a => a.p)] : []));
+      const lo = Math.min(...ps), hi = Math.max(...ps);
+      for (const pg of this.pages) if (pg.p < lo || pg.p > hi) { pg.el.style.display = 'none'; pg.skip = true; }
+    }
     // chaves de ordem de leitura de cada questão (início = cabeçalho, fim = última alternativa)
     for (const q of this.exam.questions) {
       const pos = q.pos;
@@ -78,7 +84,7 @@ export class Viewer {
         if (en.isIntersecting) this.renderPage(pg);
       }
     }, { root: this.root.parentElement, rootMargin: '1200px 0px' });
-    this.pages.forEach(pg => this.observer.observe(pg.el));
+    this.pages.forEach(pg => pg.skip || this.observer.observe(pg.el));
     window.addEventListener('resize', this.onResize);
     this.relayout();
   }
@@ -103,7 +109,7 @@ export class Viewer {
     // mantém o mesmo ponto do caderno no topo da tela ao mudar escala/tamanho da janela
     const sc = this.scroller;
     const top = sc.scrollTop;
-    const ref = this.pages.find(pg => pg.el.offsetTop + pg.el.offsetHeight > top);
+    const ref = this.pages.find(pg => !pg.skip && pg.el.offsetTop + pg.el.offsetHeight > top);
     const frac = ref && ref.el.offsetHeight ? (top - ref.el.offsetTop) / ref.el.offsetHeight : 0;
     this.currentScale = s;
     for (const pg of this.pages) {

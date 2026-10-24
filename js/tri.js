@@ -1,7 +1,7 @@
 // Nota TRI estimada, no mesmo modelo do INEP: 3 parâmetros logístico (D = 1), proficiência estimada por
 // EAP com priori normal padrão e transformada para a escala do ENEM por área.
 // As constantes da transformação foram ajustadas com as respostas e notas oficiais dos microdados
-// 2021–2025 (erro médio de 0,03 ponto; ver scripts/build_itens.py e README).
+// 2017–2025 (erro médio de 0,03 ponto; ver scripts/check_tri.mjs e README).
 export const ESCALA = {
   LC: { a: 499.978, b: 108.09 },
   CH: { a: 501.489, b: 112.311 },

@@ -13,10 +13,19 @@ for (const year of Object.keys(itens)) {
   if (!fs.existsSync(f)) continue;
   // códigos do caderno Azul usado no app
   const azul = {};
-  for (const r of csv(`${dir}/ITENS_${year}.csv`)) {
+  const its = csv(`${dir}/ITENS_${year}.csv`);
+  // 2017: o INEP numera os itens dentro de cada área (ver scripts/inep_itens.py)
+  const rel = Math.min(...its.filter(r => r.SG_AREA === 'CH').map(r => +r.CO_POSICAO)) === 1;
+  const pos = r => {
+    const p = +r.CO_POSICAO;
+    if (!rel) return r.SG_AREA === 'LC' && p <= 5 ? `${p}${r.TP_LINGUA === '0' ? 'en' : 'es'}` : `${p}`;
+    if (r.SG_AREA === 'LC') return p <= 5 ? `${p}en` : p <= 10 ? `${p - 5}es` : `${p - 5}`;
+    return `${p + { CH: 45, CN: 90, MT: 135 }[r.SG_AREA]}`;
+  };
+  for (const r of its) {
     const day = ['LC', 'CH'].includes(r.SG_AREA) ? 'd1' : 'd2';
-    const q = itens[year][day][r.CO_POSICAO] ?? itens[year][day][`${r.CO_POSICAO}en`];
-    if (r.TX_COR === 'AZUL' && q && q.b !== undefined && Math.abs(q.b - +r.NU_PARAM_B) < 1e-4 && Math.abs(q.a - +r.NU_PARAM_A) < 1e-4) (azul[r.SG_AREA] ??= new Set()).add(r.CO_PROVA);
+    const q = itens[year][day][pos(r)];
+    if (r.TX_COR.toUpperCase() === 'AZUL' && q && q.b !== undefined && Math.abs(q.b - +r.NU_PARAM_B) < 1e-4 && Math.abs(q.a - +r.NU_PARAM_A) < 1e-4) (azul[r.SG_AREA] ??= new Set()).add(r.CO_PROVA);
   }
   const errs = {};
   for (const r of csv(f)) {

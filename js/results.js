@@ -1,9 +1,11 @@
 // Tela de resultado: acertos, onde errou mais, tempo por questão, ritmo e lista detalhada.
-import { DAYS, LANGS, AREAS, loadFor, nomeProva, loadPercentis, percentil } from './data.js';
+import { DAYS, LANGS, AREAS, loadFor, nomeProva, loadPercentis, percentil, prefetchPdf } from './data.js';
 import { porMateria, materiasHTML, resumoHTML } from './topics.js';
 import { computeStats } from './stats.js';
-import { newTreino } from './store.js';
-import { h, icon, clock, dur, pct, fmtPct, esc } from './ui.js';
+import { newTreino, semBackup, downloadBackup } from './store.js';
+import { redacaoPainel, montarPainel, contarLinhas } from './redacao.js';
+import { compartilharBoletim } from './share.js';
+import { h, icon, clock, dur, pct, fmtPct, esc, toast } from './ui.js';
 
 const nota = v => (v == null ? '—' : v.toFixed(1).replace('.', ','));
 const participantes = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace('.', ',')} ${n >= 2e6 ? 'milhões' : 'milhão'} de participantes` : `${n.toLocaleString('pt-BR')} participantes`);
@@ -31,13 +33,21 @@ export async function resultsScreen(app, attempt, { go }) {
   const reviewLink = qid => `#/revisao/${attempt.id}/${qid}`;
   const qLabel = q => q.label;
   const qMeta = q => esc([treino ? q.origem.replace('ENEM ', '').replace(', questão', ' Q') : null, q.assunto || q.disciplina || AREAS[q.area].name, q.nivel ? `dificuldade ${q.nivel}` : null, q.ans ? `marcou ${q.ans}` : 'em branco', `gabarito ${q.key}`].filter(Boolean).join(' · '));
-  const hasTri = st.notaMedia != null;
+  const hasTri = st.temTri;
   const hasDisc = st.disciplinas.length > 0;
+  const semNotaTxt = st.semNota.length ? `Em ${attempt.year}, os parâmetros que o INEP publicou para ${st.semNota.map(a => AREAS[a].name).join(' e ')} não reproduzem as notas oficiais dos participantes, então o app não calcula a nota TRI ${st.semNota.length > 1 ? 'dessas áreas' : 'dessa área'}: aparecem só os acertos.` : '';
 
   const qItem = (q, extra = '') => `<li><a class="qn" href="${reviewLink(q.id)}">Q${qLabel(q)}</a>
     <span class="meta">${qMeta(q)}</span>${extra}<span class="badge ${STATUS[q.status].cls}">${STATUS[q.status].label}</span>
     <span class="time">${dur(q.time)}</span></li>`;
   const list = (arr, n = 5, extra) => (arr.length ? `<ul class="qlist">${arr.slice(0, n).map(q => qItem(q, extra?.(q))).join('')}</ul>` : '<p class="empty">Nenhuma questão aqui.</p>');
+  const pctInt = v => `${Math.round(v)}%`;
+  const povoTitle = q => `${pctInt(q.povo.acerto)} dos ${q.povo.n.toLocaleString('pt-BR')} candidatos acertaram. Alternativa errada mais marcada: ${q.povo.distrator} (${pctInt(q.povo.distratorPct)}).`;
+  const povoTag = q => `<span class="muted tabular" title="${povoTitle(q)}">${pctInt(q.povo.acerto)}</span>`;
+  // questões que a maioria dos candidatos acertou e você errou; e as que quase ninguém acertou e você acertou
+  const maioria = st.qs.filter(q => q.povo && q.povo.acerto >= 50 && (q.status === 'errada' || q.status === 'branco')).sort((a, b) => b.povo.acerto - a.povo.acerto);
+  const raras = st.qs.filter(q => q.povo && q.povo.acerto < 25 && q.status === 'certa').sort((a, b) => a.povo.acerto - b.povo.acerto);
+  const pegadinhas = st.qs.filter(q => q.povo && q.status === 'errada' && q.ans === q.povo.distrator && q.povo.distratorPct >= 25);
   const chanceTag = q => `<span class="muted tabular" title="chance de acerto de quem tem a sua nota">${Math.round(q.chance * 100)}%</span>`;
 
   const stackBar = (g, errors = false) => {
@@ -57,12 +67,15 @@ export async function resultsScreen(app, attempt, { go }) {
     <div class="results-top">
       <a class="btn ghost sm" href="#/">${icon.back} Início</a>
       <h1>${esc(nomeProva(attempt))}</h1>
-      <span class="muted">${date}${!treino && attempt.day === 1 ? `, ${LANGS[attempt.lang]}` : ''}</span>
+      <span class="muted">${date}${!treino && attempt.lang ? `, ${LANGS[attempt.lang]}` : ''}</span>
       <a class="btn sm" href="${reviewLink(exam.ids[0])}">${icon.eye} ${treino ? 'Revisar as questões' : 'Revisar no caderno'}</a>
       <a class="btn sm" href="#/evolucao">Sua evolução</a>
       ${!treino ? '<a class="btn sm" href="#/sisu">Simular SISU</a>' : ''}
+      ${hasTri ? '<button class="btn sm share">Compartilhar</button>' : ''}
       ${erradas.length ? `<button class="btn sm primary redo">Refazer as ${erradas.length} que errei</button>` : ''}
     </div>
+    ${semBackup([attempt]).length ? `<div class="bk-alert"><p><b>Esta prova só está salva neste navegador.</b> Baixe um backup para não perdê-la se os dados do site forem apagados.</p>
+      <button class="btn sm bk-out">${icon.download} Baixar backup</button></div>` : ''}
 
     ${hasTri ? `<section class="boletim">
       <div class="boletim-main">
@@ -70,13 +83,13 @@ export async function resultsScreen(app, attempt, { go }) {
           <thead><tr><th>Área</th><th class="num">Acertos</th><th class="num">Nota TRI</th>${dist ? '<th class="num pct-col">Você foi melhor que</th>' : ''}<th class="hide-sm"></th></tr></thead>
           <tbody>
           ${st.areas.map(a => `<tr><td class="area">${a.label}</td><td class="num">${a.certas} de ${a.total}</td>
-            <td class="num nota">${nota(st.tri[a.name]?.nota)}</td>
+            <td class="num nota">${st.semNota.includes(a.name) ? '<span class="muted" title="Parâmetros do INEP não reproduzem a nota oficial desta prova">sem nota</span>' : nota(st.tri[a.name]?.nota)}</td>
             ${dist ? `<td class="num pct">${pctTxt(pctOf(a.name, st.tri[a.name]?.nota))}</td>` : ''}
             <td class="gain">${st.tri[a.name]?.ganho >= 1 ? `+${Math.round(st.tri[a.name].ganho)} com as fáceis` : ''}</td></tr>`).join('')}
-          <tr class="total"><td class="area">Média das áreas</td><td class="num">${st.certas} de ${st.total}</td><td class="num nota">${nota(st.notaMedia)}</td>${dist ? `<td class="num pct">${pctTxt(pctOf(dayKey, st.notaMedia))}</td>` : ''}<td></td></tr>
+          ${st.areas.length < 2 || st.notaMedia == null ? '' : `<tr class="total"><td class="area">Média das áreas</td><td class="num">${st.certas} de ${st.total}</td><td class="num nota">${nota(st.notaMedia)}</td>${dist ? `<td class="num pct">${pctTxt(pctOf(dayKey, st.notaMedia))}</td>` : ''}<td></td></tr>`}
           </tbody>
         </table>
-        <p class="method">Estimativa com os parâmetros oficiais de cada questão, pelo mesmo método do INEP.${dist ? ` O percentual compara com as notas oficiais de ${participantes(dist[dayKey].n)} que fizeram o ${attempt.day}º dia do ENEM ${attempt.year} (microdados do INEP).` : ''}</p>
+        <p class="method">Estimativa com os parâmetros oficiais de cada questão, pelo mesmo método do INEP.${dist ? ` O percentual compara com as notas oficiais de ${participantes(dist[dayKey].n)} que fizeram o ${attempt.day}º dia do ENEM ${attempt.year} (microdados do INEP).` : ''}${semNotaTxt ? ` ${semNotaTxt}` : ''}</p>
       </div>
       <aside class="boletim-side">
         <div class="stat"><div class="k">Tempo de prova</div><div class="v">${clock(st.elapsed)}</div>
@@ -142,6 +155,8 @@ export async function resultsScreen(app, attempt, { go }) {
       ${hasTri ? `<section class="panel insight"><h3>Fáceis que você errou</h3><p class="why">Quem tem a sua nota acerta estas com a chance indicada. Na TRI, são os erros que mais custam — revisar estas é o caminho mais rápido para subir.${
         st.areas.filter(a => st.tri[a.name]?.ganho >= 1).map(a => ` Acertando as de ${a.label}: <b>+${Math.round(st.tri[a.name].ganho)} pontos</b>.`).join('')}</p>${list(st.facilErrada, 6, chanceTag)}</section>
       <section class="panel insight"><h3>Difíceis que você acertou</h3><p class="why">Acertos improváveis para a sua nota. Se foram chute, a TRI desconfia e eles valem pouco; se você sabia, é sinal de que dá para ir além.</p>${list(st.dificilCerta, 6, chanceTag)}</section>` : ''}
+      ${maioria.length || raras.length ? `<section class="panel insight"><h3>A maioria acertou, você errou</h3><p class="why">Questões em que metade ou mais dos candidatos reais acertaram (microdados do INEP). Errar estas é ficar para trás de quem disputa a vaga com você.</p>${list(maioria, 6, povoTag)}</section>
+      <section class="panel insight"><h3>Quase ninguém acertou, você acertou</h3><p class="why">Menos de 25% dos candidatos acertaram estas.${pegadinhas.length ? ` E em ${pegadinhas.length} erro${pegadinhas.length > 1 ? 's' : ''} você caiu na mesma alternativa errada que mais gente marcou: é a pegadinha da questão.` : ''}</p>${list(raras, 6, povoTag)}</section>` : ''}
       <section class="panel insight"><h3>Onde você passou mais tempo</h3><p class="why">As questões que mais consumiram sua prova.</p>${list(st.slowest)}</section>
       <section class="panel insight"><h3>Menos dificuldade</h3><p class="why">Acertou rápido — conteúdo dominado.</p>${list(st.easy)}</section>
       <section class="panel insight"><h3>Erros demorados</h3><p class="why">Você investiu tempo e mesmo assim errou: são os conteúdos para estudar primeiro.</p>${list(st.slowWrong)}</section>
@@ -157,13 +172,40 @@ export async function resultsScreen(app, attempt, { go }) {
     <section class="panel"><h2>Todas as questões</h2>
       <div class="filters">${[['todas', 'Todas'], ['errada', 'Erradas'], ['certa', 'Certas'], ['branco', 'Em branco'], ...(hasTri ? [['facil', 'Fáceis que errou']] : []), ['flag', 'Marcadas p/ revisar'], ['troca', 'Trocou resposta']]
         .map(([k, l], i) => `<button class="chip" data-f="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
-      <div class="table-wrap"><table class="qtable"><thead><tr><th>Questão</th><th>Assunto</th><th>Habilidade</th><th>Dificuldade</th><th>Sua</th><th>Gabarito</th><th>Resultado</th><th>Tempo</th><th></th></tr></thead><tbody></tbody></table></div>
-      <p class="note">${hasTri ? `A nota usa o mesmo modelo do INEP (TRI de 3 parâmetros, estimativa EAP) com os parâmetros oficiais de cada questão publicados nos microdados. Conferida contra as notas reais de ~150 mil participantes de 2021 a 2025: diferença média de 0,03 ponto. Questões anuladas, ou retiradas do cálculo pelo INEP, não entram na nota; em branco conta como erro.` : 'Questões anuladas pelo INEP não entram na conta.'}</p>
+      <div class="table-wrap"><table class="qtable"><thead><tr><th>Questão</th><th>Assunto</th><th>Habilidade</th><th>Dificuldade</th><th title="Dos candidatos que fizeram esta prova no ENEM">Candidatos</th><th>Sua</th><th>Gabarito</th><th>Resultado</th><th>Tempo</th><th></th></tr></thead><tbody></tbody></table></div>
+      <p class="note">${hasTri ? `A nota usa o mesmo modelo do INEP (TRI de 3 parâmetros, estimativa EAP) com os parâmetros oficiais de cada questão publicados nos microdados. Conferida contra as notas reais de cerca de 250 mil participantes de 2017 a 2025: diferença média de 0,03 ponto. Questões anuladas, ou retiradas do cálculo pelo INEP, não entram na nota; em branco conta como erro.` : 'Questões anuladas pelo INEP não entram na conta.'}${st.semNota.length ? ` ${semNotaTxt}` : ''}</p>
     </section>
   </div>`);
   app.append(el);
+  // deixa pronto o caderno do outro dia do mesmo ano, o próximo mais provável
+  if (!treino) setTimeout(() => prefetchPdf(attempt.year, attempt.day === 1 ? 2 : 1), 1500);
+  // redação escrita durante o 1º dia: texto e autoavaliação logo depois do boletim
+  if (!treino && attempt.day === 1 && contarLinhas(attempt.redacao)) {
+    const painel = h(redacaoPainel({ ...attempt, texto: attempt.redacao }));
+    (el.querySelector('.boletim') || el.querySelector('.results-top')).after(painel);
+    montarPainel(el, attempt);
+  }
   window.scrollTo(0, 0);
 
+  el.querySelector('.share')?.addEventListener('click', () => {
+    const pctLinha = p => (p == null ? '' : `melhor que ${pctTxt(p)} dos participantes`);
+    const media = st.areas.length > 1 && st.notaMedia != null;
+    const unica = st.areas.find(a => st.tri[a.name]) || st.areas[0];
+    compartilharBoletim({
+      titulo: nomeProva(attempt),
+      data: `Feita em ${date}`,
+      destaque: media
+        ? { label: 'Média das áreas (nota TRI)', valor: nota(st.notaMedia), sub: `${st.certas} de ${st.total} acertos` }
+        : { label: `${unica.label} (nota TRI)`, valor: nota(st.tri[unica.name]?.nota), sub: [`${unica.certas} de ${unica.total} acertos`, pctLinha(pctOf(unica.name, st.tri[unica.name]?.nota))].filter(Boolean).join(' · ') },
+      linhas: !media ? [] : st.areas.map(a => ({ label: a.label, nota: nota(st.tri[a.name]?.nota), acertos: `${a.certas} de ${a.total} acertos`, pct: pctLinha(pctOf(a.name, st.tri[a.name]?.nota)) })),
+      rodape: 'Nota estimada pela TRI com os parâmetros oficiais do INEP · twyck.github.io/simulado-enem',
+    });
+  });
+  el.querySelector('.bk-out')?.addEventListener('click', async () => {
+    await downloadBackup();
+    toast('Backup baixado');
+    el.querySelector('.bk-alert')?.remove();
+  });
   el.querySelector('.redo')?.addEventListener('click', async () => {
     const a = await newTreino(erradas.map(itemOf), {
       titulo: `Refazer erros: ${nomeProva(attempt)}`,
@@ -181,12 +223,13 @@ export async function resultsScreen(app, attempt, { go }) {
       <td><b>${qLabel(q)}</b>${treino ? ` <span class="muted">${q.src.year}</span>` : ''}${q.flagged ? ' <span title="marcada p/ revisar" style="color:var(--warn)">⚑</span>' : ''}</td>
       <td>${esc(q.disciplina || AREAS[q.area].name)}<br><span class="muted">${esc(q.assunto || '')}</span></td>
       <td>${q.hab ? `<span title="${esc(q.habDesc || '')}">H${q.hab}</span>` : '—'}</td>
-      <td>${q.dif ? `${Math.round(q.dif)} <span class="muted">${q.nivel}</span>` : q.status === 'anulada' ? '—' : '<span class="muted" title="O INEP retirou este item do cálculo da nota">fora da TRI</span>'}</td>
+      <td>${q.dif ? `${Math.round(q.dif)} <span class="muted">${q.nivel}</span>` : q.status === 'anulada' || q.semNota ? '—' : '<span class="muted" title="O INEP retirou este item do cálculo da nota">fora da TRI</span>'}</td>
+      <td>${q.povo ? `<span title="${povoTitle(q)}">${pctInt(q.povo.acerto)} acertaram</span>` : '—'}</td>
       <td class="ans">${q.ans || '—'}${q.changes ? ` <span class="muted" title="trocou de resposta">(${q.changes}×)</span>` : ''}</td>
       <td class="ans">${q.key === 'X' ? 'anulada' : q.key}</td>
       <td><span class="badge ${STATUS[q.status].cls}">${STATUS[q.status].label}</span></td>
       <td>${clock(q.time, false)}</td>
-      <td><a href="${reviewLink(q.id)}">ver</a></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nada aqui.</td></tr>';
+      <td><a href="${reviewLink(q.id)}">ver</a></td></tr>`).join('') || '<tr><td colspan="10" class="empty">Nada aqui.</td></tr>';
   };
   el.querySelector('.filters').addEventListener('click', e => {
     const b = e.target.closest('.chip');

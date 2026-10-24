@@ -42,7 +42,7 @@ async function analyze(file, year, day) {
       const k = `${it.str}|${x.toFixed(1)}|${y.toFixed(1)}`;
       if (seen.has(k)) continue; // alguns anos duplicam cada glifo
       seen.add(k);
-      items.push({ str: it.str, x, y, w: it.width, h: Math.abs(d) });
+      items.push({ str: it.str, x, y, w: it.width, h: Math.abs(d), font: it.fontName });
     }
     pages.push({ w: +W.toFixed(1), h: +H.toFixed(1), mid: +mid.toFixed(1), x0: +vx0.toFixed(1), y0: +vy0.toFixed(1) });
     // corpo da página: sem código de barras do topo e sem rodapé
@@ -79,11 +79,23 @@ async function analyze(file, year, day) {
     }
     for (const it of items) {
       if (/^[A-E]$/.test(it.str) && Math.abs(it.w - it.h) < 3) {
-        anchors.push({ t: 'alt', p, x: it.x, y: it.y, L: it.str, s: it.h });
+        anchors.push({ t: 'alt', p, x: it.x, y: it.y, L: it.str, s: it.h, font: it.font });
       }
     }
   }
-  return { pages, anchors, pageItems, numPages: doc.numPages };
+  // as letras das alternativas usam uma fonte própria (a mais comum entre letras A–E isoladas);
+  // letras soltas em fórmulas e figuras ("C" de C6H12O6, pontos A e B de um desenho) ficam de fora
+  const freq = {};
+  for (const a of anchors) if (a.t === 'alt') freq[a.font] = (freq[a.font] || 0) + 1;
+  // (alguns cadernos usam duas: soma as mais comuns até dar 5 letras por questão do dia)
+  const esperado = (day === 1 ? 95 : 90) * 5;
+  const altFonts = new Set();
+  let total = 0;
+  for (const [font, n] of Object.entries(freq).sort((x, y) => y[1] - x[1])) {
+    if (total >= esperado) break;
+    altFonts.add(font); total += n;
+  }
+  return { pages, anchors: anchors.filter(a => a.t !== 'alt' || altFonts.has(a.font)), pageItems, numPages: doc.numPages };
 }
 
 // ordem de leitura do caderno (sempre em duas colunas): página → coluna → de cima para baixo
@@ -114,6 +126,15 @@ for (const f of files.sort()) {
     // alternativas podem vir em grade (A|D, B|E, C): fica a primeira ocorrência de cada letra
     if (a.t === 'alt' && cur && !cur.alts.some(x => x.L === a.L)) {
       cur.alts.push({ L: a.L, p: a.p, x: +a.x.toFixed(1), y: +a.y.toFixed(1), s: +a.s.toFixed(1) });
+    }
+  }
+  // grade que atravessa o meio da página (A|D, B|E, C): as letras da direita caem na outra coluna na
+  // ordem de leitura; completa com a letra que falta na mesma linha de uma alternativa já achada
+  for (const q of Object.values(questions)) {
+    if (q.alts.length >= 5 || !q.alts.length) continue;
+    for (const L of 'ABCDE'.split('').filter(L => !q.alts.some(a => a.L === L))) {
+      const hit = anchors.find(a => a.t === 'alt' && a.L === L && q.alts.some(b => b.p === a.p && Math.abs(b.y - a.y) < 1 && a.x > b.x));
+      if (hit) q.alts.push({ L, p: hit.p, x: +hit.x.toFixed(1), y: +hit.y.toFixed(1), s: +hit.s.toFixed(1) });
     }
   }
   Object.values(questions).forEach(fix);

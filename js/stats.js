@@ -47,6 +47,9 @@ export function computeStats(exam, attempt) {
     tri[area] = { nota, facilErrada, ganho };
   }
   const triAreas = Object.keys(tri);
+  const areasProva = [...new Set(valid.map(q => q.area))];
+  // áreas em que o INEP publicou parâmetros que não reproduzem a nota oficial: sem nota TRI
+  const semNota = areasProva.filter(a => qs.some(q => q.area === a && q.semNota));
   const facilErrada = triAreas.flatMap(a => tri[a].facilErrada).sort((a, b) => b.chance - a.chance);
   // acertos improváveis para a sua nota: a TRI trata como possível chute e eles valem pouco
   const dificilCerta = qs.filter(q => q.tri && q.status === 'certa' && q.chance < 0.35).sort((a, b) => a.chance - b.chance);
@@ -122,7 +125,10 @@ export function computeStats(exam, attempt) {
     median,
     areas: group(q => q.area).map(a => ({ ...a, label: AREAS[a.name].name })),
     tri,
-    notaMedia: triAreas.length ? triAreas.reduce((s, a) => s + tri[a].nota, 0) / triAreas.length : null,
+    // média só com todas as áreas da prova; com alguma sem nota, fica a nota de cada área
+    notaMedia: triAreas.length && triAreas.length === areasProva.length ? triAreas.reduce((s, a) => s + tri[a].nota, 0) / triAreas.length : null,
+    temTri: triAreas.length > 0,
+    semNota,
     facilErrada,
     dificilCerta,
     habilidades,

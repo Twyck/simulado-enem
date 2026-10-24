@@ -712,3 +712,120 @@ i.unseen, .cell[data-unseen] { background: transparent; border: 1.5px dashed var
   .bar-float .float-sheet { display: inline-flex; }
   .bar-float .show-bar span { display: none; }
 }
+
+/* lembrete de backup */
+.bk-alert { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 18px; margin: 0 0 20px; border-radius: var(--radius); background: #fff6e0; border: 1px solid #f1d59a; }
+.bk-alert p { margin: 0; flex: 1; min-width: 240px; font-family: var(--text); font-size: 15px; color: var(--ink-2); }
+.bk-alert b { color: var(--ink); }
+.home > .bk-alert { margin-top: 0; }
+
+/* meta de curso */
+.star { border: 0; background: none; padding: 0 6px 0 0; font-size: 18px; line-height: 1; color: var(--line-2); cursor: pointer; vertical-align: -1px; }
+.star:hover { color: var(--warn); }
+.star.on { color: #e7a500; }
+.meta-card { display: flex; gap: 14px; align-items: center; padding: 16px 20px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line-2); border-left: 4px solid #e7a500; border-radius: var(--radius); }
+.meta-card > div { flex: 1; min-width: 0; }
+.meta-card .star { font-size: 26px; cursor: default; }
+.meta-card .k { font-size: 13px; color: var(--muted); }
+.meta-card b { font-family: var(--display); }
+.meta-card .s { font-size: 14.5px; color: var(--ink-2); margin-top: 4px; font-family: var(--text); }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.meta-panel .meta-card { box-shadow: none; }
+.meta-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 4px 0 18px; }
+.meta-nums > div { background: var(--surface-2); border-radius: 10px; padding: 12px 16px; }
+.meta-nums .k { font-size: 13.5px; color: var(--muted); }
+.meta-nums .v { font-family: var(--display); font-size: 28px; font-weight: 750; font-stretch: 108%; }
+.meta-nums .s { font-size: 13px; color: var(--ink-2); }
+.meta-h { font-size: 16px; margin: 18px 0 4px; }
+.meta-panel .hbar .val { min-width: 230px; }
+.meta-hist { display: flex; gap: 8px; flex-wrap: wrap; }
+.meta-hist > div { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-family: var(--display); font-weight: 700; }
+.meta-hist > div.ok { border-color: var(--good); color: var(--good); }
+.meta-hist small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+@media (max-width: 560px) {
+  .meta-nums { grid-template-columns: 1fr; }
+  .meta-panel .hbar { grid-template-columns: 1fr; gap: 4px; }
+  .meta-panel .hbar .val { text-align: left; min-width: 0; }
+}
+
+/* ---------------- Redação ---------------- */
+.folha { background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; }
+.folha-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; border-bottom: 1.5px solid var(--form); font-family: var(--display); }
+.folha-head .linhas { font-size: 14px; color: var(--form); font-weight: 650; }
+.folha-head .linhas.over { color: var(--bad); }
+.folha-txt {
+  display: block; width: 100%; min-height: calc(30 * 32px + 16px); resize: none; border: 0; outline: none; color: #1d3fb8;
+  padding: 8px 14px 8px 46px; font-family: var(--text); font-size: 17px; line-height: 32px; background-color: #fff;
+  background-image: linear-gradient(to right, transparent 36px, var(--form-line) 36px 37px, transparent 37px),
+    repeating-linear-gradient(to bottom, transparent 0 31px, var(--form-line) 31px 32px);
+  background-position: 0 8px; background-attachment: local;
+}
+.folha-txt[readonly] { color: var(--ink); }
+.folha-aviso { margin: 0; padding: 0 14px; min-height: 0; font-size: 13.5px; color: var(--bad); font-family: var(--text); }
+.folha-aviso:not(:empty) { padding: 8px 14px; border-top: 1px solid var(--line); }
+
+/* gaveta da folha dentro da prova do 1º dia */
+.red-drawer {
+  position: absolute; right: 0; top: 0; bottom: 0; width: min(620px, 100vw); z-index: 6; background: var(--bg); overflow: auto;
+  transform: translateX(100%); transition: transform .22s ease; box-shadow: -10px 0 30px rgb(12 18 28 / .18); padding: 0 14px 30px;
+}
+.exam.red-open .red-drawer { transform: none; }
+.red-drawer-head { display: flex; justify-content: space-between; position: sticky; top: 0; background: var(--bg); padding: 10px 0; z-index: 1; }
+.red-toggle span { margin-left: 2px; }
+@media (max-width: 720px) { .red-toggle .hide-sm { display: none; } }
+
+/* redação avulsa */
+.redacao-tela .red-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 620px); gap: 18px; padding: 16px; overflow: hidden; }
+.red-prop, .red-folha { overflow: auto; min-height: 0; }
+.red-pages canvas { display: block; margin: 0 auto 12px; background: #fff; box-shadow: 0 1px 4px rgb(19 34 63 / .15); max-width: 100%; height: auto; }
+.red-tabs { display: none; gap: 6px; }
+@media (max-width: 900px) {
+  .redacao-tela .red-main { grid-template-columns: 1fr; padding: 10px; }
+  .red-tabs { display: flex; }
+  .redacao-tela .red-folha { display: none; }
+  .redacao-tela.show-folha .red-folha { display: block; }
+  .redacao-tela.show-folha .red-prop { display: none; }
+  .redacao-tela .exam-bar .title small { display: none; }
+}
+
+/* autoavaliação */
+.red-grid { align-items: start; margin-bottom: 0; }
+.autoav { display: flex; flex-direction: column; gap: 12px; }
+.av-zero { background: var(--bad-soft); border-radius: 10px; padding: 12px 14px; font-size: 14.5px; }
+.av-zero label, .av-el label { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; font-family: var(--text); }
+.av-comp { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.av-comp.off { opacity: .45; pointer-events: none; }
+.av-head { display: flex; gap: 10px; align-items: baseline; }
+.av-head p { margin: 0; font-size: 14.5px; font-family: var(--text); color: var(--ink); }
+.av-n { font-family: var(--display); font-weight: 800; font-size: 18px; color: var(--form); }
+.av-guia { margin: 8px 0 10px; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); font-family: var(--text); }
+.av-el { margin: 8px 0 10px; font-size: 13.5px; }
+.av-niveis { display: flex; gap: 6px; flex-wrap: wrap; }
+.av-niveis .chip { min-width: 52px; font-variant-numeric: tabular-nums; }
+.av-total { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--form-soft); }
+.av-total span { font-family: var(--display); font-weight: 650; }
+.av-total b { font-family: var(--display); font-size: 32px; font-weight: 800; }
+.red-panel { margin: 20px 0; }
+
+/* barra de navegação de baixo (celular) */
+.tabbar { display: none; }
+@media (max-width: 720px) {
+  .tabbar:not(.hidden) {
+    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line); padding: 6px 4px max(6px, env(safe-area-inset-bottom));
+  }
+  .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; font-family: var(--display); font-size: 11.5px; font-weight: 600; color: var(--muted); text-decoration: none; }
+  .tabbar a svg { width: 24px; height: 24px; }
+  .tabbar a.on { color: var(--primary); }
+  body:has(.tabbar:not(.hidden)) #app { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+}
+
+/* dicas da primeira prova */
+.dicas { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); z-index: 8; width: min(460px, calc(100% - 24px)); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 18px 50px rgb(19 34 63 / .22); padding: 18px 20px; }
+.dicas h3 { margin: 0 0 8px; font-size: 18px; }
+.dicas ul { margin: 0 0 14px; padding-left: 18px; font-family: var(--text); font-size: 15px; color: var(--ink-2); }
+.dicas li { margin: 4px 0; }
+.row .pv { font-size: 11.5px; font-weight: 700; color: var(--form); font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+.review .qnow { white-space: normal; font-size: 13.5px; max-width: 520px; }

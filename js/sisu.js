@@ -3,11 +3,12 @@
 import { AREAS, loadFor, nomeProva } from './data.js';
 import { listAttempts, kv } from './store.js';
 import { computeStats } from './stats.js';
+import { notaRedacao, avaliada } from './redacao.js';
 import { h, icon, esc } from './ui.js';
 
 export const SISU_ANO = 2025; // SISU 2025 usou as notas do ENEM 2024
-const CAMPOS = [...Object.keys(AREAS), 'RED'];
-const NOME = { ...Object.fromEntries(Object.entries(AREAS).map(([k, v]) => [k, v.name])), RED: 'Redação' };
+export const CAMPOS = [...Object.keys(AREAS), 'RED'];
+export const NOME = { ...Object.fromEntries(Object.entries(AREAS).map(([k, v]) => [k, v.name])), RED: 'Redação' };
 const QUASE = 20; // "quase lá": até 20 pontos abaixo da nota de corte
 const PAGINA = 60;
 
@@ -17,7 +18,7 @@ const loadSisu = () => (dados ??= fetch(`data/sisu/${SISU_ANO}.json`).then(r => 
   return r.json();
 }));
 
-const num = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const num = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const semAcento = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 // modalidades da Lei de Cotas: E escola pública, R renda até 1 salário mínimo per capita,
@@ -48,11 +49,25 @@ function elegivel(code, perfil) {
   return true;
 }
 
+// meta: um curso escolhido na simulação, acompanhado na tela de evolução
+export const getMeta = () => kv.get('meta');
+export const getSisuState = () => kv.get('sisu');
+function metaDe(d, o) {
+  const [nomeCampus, cidade, uf] = d.campi[o[6]];
+  return { ano: d.ano, o, curso: d.cursos[o[1]], grau: d.grau[o[2]], turno: d.turno[o[3]], sigla: d.ies[o[5]][0], ies: d.ies[o[5]][1], campus: nomeCampus, cidade, uf };
+}
+// perfil de cotas só vale para quem estudou em escola pública
+export const perfilEfetivo = p => (p?.ep ? p : { ep: false });
+
 // nota de cada área na prova completa mais recente do app
-async function notasDoApp() {
-  const feitas = (await listAttempts()).filter(a => a.status === 'done' && a.mode !== 'treino')
+export async function notasDoApp() {
+  const todas = (await listAttempts()).filter(a => a.status === 'done')
     .sort((a, b) => (b.finishedAt || b.startedAt) - (a.finishedAt || a.startedAt));
+  const feitas = todas.filter(a => a.mode !== 'treino' && a.mode !== 'redacao');
   const out = {};
+  // redação: a autoavaliação mais recente (redação avulsa ou a escrita no 1º dia)
+  const red = todas.find(a => avaliada(a.avaliacao));
+  if (red) out.RED = { v: notaRedacao(red.avaliacao), fonte: `autoavaliação: ${nomeProva(red)}` };
   for (const a of feitas) {
     const st = computeStats(await loadFor(a), a);
     for (const [area, t] of Object.entries(st.tri)) {
@@ -64,7 +79,7 @@ async function notasDoApp() {
 }
 
 // avalia uma oferta: nota com os pesos do curso, mínimas e a menor nota de corte entre as modalidades possíveis
-function avaliar(o, notas, perfil) {
+export function avaliar(o, notas, perfil) {
   const [, , , , , , , pesos, minimas, cortes] = o;
   const vals = CAMPOS.map(c => notas[c]);
   const soma = pesos.reduce((s, p) => s + p, 0);
@@ -87,7 +102,8 @@ function avaliar(o, notas, perfil) {
 export async function sisuScreen(app) {
   app.innerHTML = `<div class="results"><div class="results-top"><a class="btn ghost sm" href="#/">${icon.back} Início</a><h1>Simulação do SISU</h1></div>
     <div class="panel"><p class="empty">Carregando as notas de corte…</p></div></div>`;
-  const [d, doApp, salvo] = await Promise.all([loadSisu(), notasDoApp(), kv.get('sisu')]);
+  const [d, doApp, salvo, metaSalva] = await Promise.all([loadSisu(), notasDoApp(), kv.get('sisu'), getMeta()]);
+  let meta = metaSalva?.ano === SISU_ANO ? metaSalva : null;
   const st = {
     manual: salvo?.manual || {}, // notas digitadas (substituem as do app)
     perfil: { ep: false, renda: false, raca: '', pcd: false, ...salvo?.perfil },
@@ -128,6 +144,7 @@ export async function sisuScreen(app) {
 
     <div class="panel sisu-aviso hidden"></div>
     <div class="sisu-out">
+      <div class="sisu-meta"></div>
       <div class="hero sisu-hero"></div>
       <section class="panel">
         <div class="sisu-filters">
@@ -158,6 +175,15 @@ export async function sisuScreen(app) {
   const hero = el.querySelector('.sisu-hero');
   const chips = el.querySelector('.sisu-ver .chips');
   const lista_ = el.querySelector('.sisu-lista');
+  const metaBox = el.querySelector('.sisu-meta');
+  lista_.addEventListener('click', async e => {
+    const b = e.target.closest('.star[data-cod]');
+    if (!b) return;
+    const o = d.ofertas.find(x => x[0] === +b.dataset.cod);
+    if (meta?.o[0] === o[0]) { meta = null; await kv.del('meta'); }
+    else { meta = metaDe(d, o); await kv.set('meta', meta); }
+    render();
+  });
   const inputs = [...el.querySelectorAll('.notas input')];
   const paintNotas = () => {
     for (const inp of inputs) {
@@ -167,7 +193,7 @@ export async function sisuScreen(app) {
       if (st.manual[c] != null) {
         src.innerHTML = doApp[c] ? `digitada por você · <button class="linkish" data-reset="${c}">usar ${String(doApp[c].v).replace('.', ',')} do app</button>` : 'digitada por você';
       } else if (doApp[c]) {
-        src.textContent = `da prova ${doApp[c].fonte}`;
+        src.textContent = c === 'RED' ? `da sua ${doApp[c].fonte}` : `da prova ${doApp[c].fonte}`;
       } else {
         src.textContent = c === 'RED' ? 'o app não corrige redação: digite a sua nota' : 'faça a prova no app ou digite';
       }
@@ -192,7 +218,7 @@ export async function sisuScreen(app) {
     }
     out.classList.remove('hidden');
     aviso.classList.add('hidden');
-    const perfil = st.perfil.ep ? st.perfil : { ep: false };
+    const perfil = perfilEfetivo(st.perfil);
     const todos = d.ofertas.map(o => avaliar(o, notas, perfil));
     const f = st.filtro;
     const termos = semAcento(f.q).split(/[^a-z0-9/]+/).filter(Boolean);
@@ -219,10 +245,16 @@ export async function sisuScreen(app) {
     chips.innerHTML = [['passa', `Passaria (${n(cont('passa'))})`], ['quase', `Quase lá (${n(cont('quase'))})`], ['falta', `Não passaria (${n(cont('falta') + cont('minima'))})`], ['todos', `Todos (${n(filtrados.length)})`]]
       .map(([v, l]) => `<button class="chip" data-ver="${v}" aria-pressed="${f.ver === v}">${l}</button>`).join('');
     lista_.innerHTML = lista.length ? `<div class="table-wrap"><table class="qtable sisu-table"><thead><tr><th>Curso</th><th>Instituição</th><th class="r">Sua nota</th><th class="r">Nota de corte</th><th class="r">Diferença</th></tr></thead><tbody>
-          ${lista.slice(0, shown).map(r => linha(d, r)).join('')}</tbody></table></div>
+          ${lista.slice(0, shown).map(r => linha(d, r, meta?.o[0])).join('')}</tbody></table></div>
           ${lista.length > shown ? `<button class="btn more">Mostrar mais ${Math.min(PAGINA, lista.length - shown)} de ${n(lista.length - shown)}</button>` : ''}`
       : `<p class="empty">${f.ver === 'passa' ? 'Nenhum curso com nota de corte abaixo da sua nesses filtros. Veja os que estão “quase lá”.' : 'Nenhum curso nesses filtros.'}</p>`;
     lista_.querySelector('.more')?.addEventListener('click', () => { shown += PAGINA; render(); });
+    const rm = meta && todos.find(r => r?.o[0] === meta.o[0]);
+    metaBox.innerHTML = meta ? `<div class="meta-card"><span class="star on" aria-hidden="true">★</span>
+      <div><div class="k">Sua meta</div><b>${esc(meta.curso)}, ${esc(meta.sigla)}</b> <span class="muted">${esc(meta.cidade)}, ${meta.uf} · ${meta.turno}</span>
+      ${rm ? `<div class="s">${rm.status === 'passa' ? `Você passaria, com <b class="good">${num(rm.margem)}</b> pontos de folga.` : rm.status === 'minima' ? 'Você não atinge a nota mínima de ' + esc(rm.abaixo.join(', ')) + '.' : `Faltam <b class="bad">${num(-rm.margem)}</b> pontos para o corte de ${num(rm.melhor.corte)}.`} Acompanhe em <a href="#/evolucao">Sua evolução</a>.</div>` : ''}</div>
+      <button class="btn sm ghost meta-off">Tirar meta</button></div>` : '';
+    metaBox.querySelector('.meta-off')?.addEventListener('click', async () => { meta = null; await kv.del('meta'); render(); });
   };
 
   const f = st.filtro;
@@ -265,7 +297,7 @@ export async function sisuScreen(app) {
   render();
 }
 
-function linha(d, r) {
+function linha(d, r, metaCod) {
   const [, curso, grau, turno, vagas, ies, campus] = r.o;
   const [sigla, nomeIes] = d.ies[ies];
   const [nomeCampus, cidade, uf] = d.campi[campus];
@@ -275,7 +307,7 @@ function linha(d, r) {
     ? `<span class="badge bad" title="Nota mínima exigida em: ${esc(r.abaixo.join(', '))}">nota mínima</span>`
     : `<b class="dif ${r.status}">${r.margem >= 0 ? '+' : '−'}${num(Math.abs(r.margem))}</b>`;
   return `<tr class="${r.status}">
-    <td><b class="curso">${esc(d.cursos[curso])}</b><span class="meta">${d.grau[grau].replace(' (ABI)', '')} · ${d.turno[turno]} · ${vagas} vagas</span></td>
+    <td><button class="star${metaCod === r.o[0] ? ' on' : ''}" data-cod="${r.o[0]}" title="${metaCod === r.o[0] ? 'Tirar meta' : 'Definir como sua meta'}" aria-pressed="${metaCod === r.o[0]}">★</button><b class="curso">${esc(d.cursos[curso])}</b><span class="meta">${d.grau[grau].replace(' (ABI)', '')} · ${d.turno[turno]} · ${vagas} vagas</span></td>
     <td><b title="${esc(nomeIes)}">${esc(sigla)}</b><span class="meta" title="${esc(nomeCampus)}">${esc(cidade)}, ${uf}</span></td>
     <td class="r tabular">${num(r.media)}</td>
     <td class="r tabular">${m.semCorte ? '<span class="muted" title="Menos inscritos que vagas nessa modalidade">sem corte</span>' : num(m.corte)}

@@ -1,12 +1,14 @@
 // Entrada do app: rotas (início, prova, resultado, revisão) e tela inicial.
-import { YEARS, DAYS, LANGS, MATERIAS, AREAS, pdfLocal, pdfInep, loadExam, loadTreino, findQuestions, assuntosDe, loadFor, nomeProva } from './data.js';
-import { listAttempts, saveAttempt, getAttempt, deleteAttempt, exportBackup, importBackup } from './store.js';
+import { YEARS, DAYS, LANGS, MATERIAS, AREAS, AREA_MINUTES, dayOfArea, pdfLocal, pdfInep, loadExam, loadTreino, findQuestions, assuntosDe, loadFor, nomeProva } from './data.js';
+import { listAttempts, saveAttempt, getAttempt, deleteAttempt, importBackup, downloadBackup, semBackup, pedirPersistencia } from './store.js';
 import { examScreen } from './exam.js';
 import { resultsScreen } from './results.js';
 import { evolutionScreen } from './evolution.js';
 import { sisuScreen } from './sisu.js';
 import { introHTML, mountIntro } from './intro.js';
 import { computeStats } from './stats.js';
+import { caderno, comecarRevisao, quando } from './revisao.js';
+import { redacaoScreen, redacaoResultado, contarLinhas, notaRedacao, avaliada, REDACAO_MINUTOS } from './redacao.js';
 import { h, icon, clock, pct, fmtPct, modal, toast, esc } from './ui.js';
 
 const app = document.getElementById('app');
@@ -20,24 +22,36 @@ const savePrefs = () => { try { localStorage.setItem('prefs', JSON.stringify(pre
 let leave = null;
 const setLeave = fn => { leave = fn; };
 
+const tabbar = document.querySelector('.tabbar');
+function syncTabbar(view) {
+  // barra de baixo no celular; some dentro da prova e da revisão para não roubar espaço
+  const tab = { evolucao: 'evolucao', sisu: 'sisu', '#nova': 'nova' }[view] || (view ? null : 'inicio');
+  tabbar.classList.toggle('hidden', view === 'prova' || view === 'revisao');
+  tabbar.querySelectorAll('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
+}
+
 async function route() {
   leave?.();
   leave = null;
   const [, view, id, q] = location.hash.split('/');
+  syncTabbar(view);
   try {
     if (view === 'prova' && id) {
       const a = await getAttempt(id);
       if (!a) return go('#/');
       if (a.status === 'done') return go(`#/resultado/${id}`);
+      if (a.mode === 'redacao') return redacaoScreen(app, a, { go, setLeave });
       return examScreen(app, a, { go, setLeave });
     }
     if (view === 'resultado' && id) {
       const a = await getAttempt(id);
+      if (a?.mode === 'redacao') return redacaoResultado(app, a);
       return a ? resultsScreen(app, a, { go }) : go('#/');
     }
     if (view === 'evolucao') return evolutionScreen(app);
     if (view === 'sisu') return sisuScreen(app);
     if (view === 'sobre') return home({ intro: true });
+    if (view === '#nova') { await home(); return document.getElementById('nova')?.scrollIntoView({ block: 'start' }); }
     if (view === 'revisao' && id) {
       const a = await getAttempt(id);
       return a ? examScreen(app, a, { review: true, focusQ: q ? decodeURIComponent(q) : null, go, setLeave }) : go('#/');
@@ -58,6 +72,7 @@ async function home({ intro = false } = {}) {
     time: prefs.time ?? 'oficial',
     custom: prefs.custom ?? 180,
     tipo: prefs.tipo ?? 'prova',
+    area: prefs.area ?? 'MT',
     materia: prefs.materia ?? 'Matemática',
     assunto: prefs.assunto ?? '',
     anoTreino: prefs.anoTreino ?? 'todos',
@@ -87,12 +102,17 @@ async function home({ intro = false } = {}) {
 
     <section class="intro">
       <h1>A prova oficial, do jeito que cai no dia.</h1>
-      <p>Os cadernos do INEP de 2021 a 2025 na tela, com cartão-resposta, cronômetro e nota calculada pela TRI como a oficial.</p>
+      <p>Os cadernos do INEP de 2017 a 2025 na tela, com cartão-resposta, cronômetro e nota calculada pela TRI como a oficial.</p>
     </section>`}
+
+    ${semBackup(done).length >= 1 ? `<div class="bk-alert"><p><b>${semBackup(done).length === 1 ? '1 prova entregue ainda não está' : `${semBackup(done).length} provas entregues ainda não estão`} em nenhum backup.</b>
+      Tudo fica só neste navegador: se ele limpar os dados do site, elas se perdem.</p><button class="btn sm primary bk-out">${icon.download} Baixar backup</button></div>` : ''}
+
+    <div class="revisao-slot"></div>
 
     ${running.length ? `<section class="section"><h2>Continue de onde parou</h2>${running.map(a => `
       <div class="resume"><div><b>${esc(nomeProva(a))}</b>
-        <div class="meta">${Object.keys(a.answers || {}).length} de ${a.mode === 'treino' ? a.items.length : 90} respondidas, ${clock(a.elapsed)} de prova</div></div>
+        <div class="meta">${a.mode === 'redacao' ? `≈ ${contarLinhas(a.texto)} linhas escritas` : `${Object.keys(a.answers || {}).length} de ${a.mode === 'treino' ? a.items.length : a.area ? 45 : 90} respondidas`}, ${clock(a.elapsed)} de prova</div></div>
         <div class="row-actions"><button class="btn sm ghost danger" data-del="${a.id}" title="Excluir">${icon.trash}</button><a class="btn primary sm" href="#/prova/${a.id}">Continuar prova</a></div></div>`).join('')}</section>` : ''}
 
     <section class="section" id="nova">
@@ -100,6 +120,8 @@ async function home({ intro = false } = {}) {
         <div class="form-head"><h2>Nova prova</h2><span class="code">Caderno Azul</span></div>
         <div class="field"><span class="label">Tipo</span><div class="choices">
           <button class="choice" data-tipo="prova">${oval}<span>Prova completa<span class="sub">90 questões de um dia, como no exame</span></span></button>
+          <button class="choice" data-tipo="area">${oval}<span>Uma área<span class="sub">só as 45 questões de uma área, no caderno oficial e com nota TRI</span></span></button>
+          <button class="choice" data-tipo="redacao">${oval}<span>Redação<span class="sub">a proposta oficial do ano, folha de 30 linhas e autoavaliação pelas 5 competências</span></span></button>
           <button class="choice" data-tipo="treino">${oval}<span>Treino por matéria<span class="sub">só as questões da matéria e do assunto que você escolher</span></span></button></div></div>
         <div class="treino-fields">
           <div class="field"><span class="label">Matéria</span><div class="choices materias">${MATERIAS.map(m => `<button class="choice" data-materia="${m.name}">${oval}<span>${m.name}</span></button>`).join('')}</div></div>
@@ -115,7 +137,8 @@ async function home({ intro = false } = {}) {
         </div>
         <div class="prova-fields">
         <div class="field"><span class="label">Ano</span><div class="choices years">${YEARS.map(y => `<button class="choice" data-year="${y}">${oval}<span>${y}</span></button>`).join('')}</div></div>
-        <div class="field"><span class="label">Dia</span><div class="choices days">${Object.entries(DAYS).map(([d, v]) => `
+        <div class="field area-field"><span class="label">Área</span><div class="choices">${Object.entries(AREAS).map(([k, v]) => `<button class="choice" data-area="${k}">${oval}<span>${v.name}</span></button>`).join('')}</div></div>
+        <div class="field day-field"><span class="label">Dia</span><div class="choices days">${Object.entries(DAYS).map(([d, v]) => `
           <button class="choice" data-day="${d}">${oval}<span>${v.label}<span class="sub">${v.note.replace(' (+ redação)', '')}, 90 questões em ${clock(v.minutes * 60).slice(0, -3).replace(':', 'h')}</span></span></button>`).join('')}</div></div>
         <div class="field lang-field"><span class="label">Língua<small>questões 1 a 5</small></span><div class="choices langs">${Object.entries(LANGS).map(([k, v]) => `<button class="choice" data-lang="${k}">${oval}<span>${v}</span></button>`).join('')}</div></div>
         <div class="field"><span class="label">Tempo</span><div class="choices time-row">
@@ -133,7 +156,7 @@ async function home({ intro = false } = {}) {
     <section class="section ${showIntro && !done.length ? 'hidden' : ''}">
       <div class="section-head"><h2>Histórico</h2>${done.length ? '<a href="#/evolucao">Ver evolução</a>' : ''}</div>
       ${done.length ? `<table class="history"><thead><tr><th>Prova</th><th class="hide-sm">Data</th><th>Nota TRI</th><th class="hide-sm">Tempo</th><th></th></tr></thead><tbody>
-      ${done.map(a => `<tr data-id="${a.id}"><td>${a.mode === 'treino' ? esc(nomeProva(a)) : `<b>${a.year}</b>, ${DAYS[a.day].label}`}</td><td class="hide-sm muted">${new Date(a.startedAt).toLocaleDateString('pt-BR')}</td>
+      ${done.map(a => `<tr data-id="${a.id}"><td>${a.mode === 'treino' || a.mode === 'redacao' ? esc(nomeProva(a)) : `<b>${a.year}</b>, ${a.area ? AREAS[a.area].name : DAYS[a.day].label}`}</td><td class="hide-sm muted">${new Date(a.startedAt).toLocaleDateString('pt-BR')}</td>
         <td class="tabular score">…</td><td class="hide-sm tabular">${clock(a.elapsed)}</td>
         <td><a class="btn sm" href="#/resultado/${a.id}">Ver análise</a> <button class="btn sm ghost danger" data-del="${a.id}" title="Excluir">${icon.trash}</button></td></tr>`).join('')}
       </tbody></table>` : '<p class="empty">Entregue sua primeira prova para ver a nota e a análise aqui.</p>'}
@@ -152,7 +175,7 @@ async function home({ intro = false } = {}) {
 
     <section class="section">
       <div class="offline-row"><p>Para usar sem internet, instale o app (menu do navegador, “Adicionar à tela de início”) e salve os cadernos no aparelho.</p>
-      <div class="progress hidden"><i></i></div><button class="btn dl">${icon.download} Salvar as 10 provas</button></div>
+      <div class="progress hidden"><i></i></div><button class="btn dl">${icon.download} Salvar as ${YEARS.length * 2} provas</button></div>
     </section>
 
     <footer class="fine">Cadernos, gabaritos, parâmetros da TRI e Matriz de Referência: publicações oficiais do INEP (download.inep.gov.br).
@@ -179,25 +202,33 @@ async function home({ intro = false } = {}) {
     el.querySelectorAll('[data-qtd]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.qtd === sel.qtd));
     el.querySelectorAll('[data-tempotreino]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tempotreino === sel.tempoTreino));
     el.querySelector('.treino-fields').classList.toggle('hidden', sel.tipo !== 'treino');
-    el.querySelector('.prova-fields').classList.toggle('hidden', sel.tipo !== 'prova');
-    el.querySelector('.start').textContent = sel.tipo === 'treino' ? 'Começar treino' : 'Começar prova';
+    el.querySelector('.prova-fields').classList.toggle('hidden', sel.tipo === 'treino');
+    const porArea = sel.tipo === 'area';
+    const redacao = sel.tipo === 'redacao';
+    const dia = porArea ? dayOfArea(sel.area) : redacao ? 1 : sel.day;
+    el.querySelector('.area-field').classList.toggle('hidden', !porArea);
+    el.querySelector('.day-field').classList.toggle('hidden', porArea || redacao);
+    el.querySelectorAll('[data-area]').forEach(b => b.setAttribute('aria-pressed', b.dataset.area === sel.area));
+    el.querySelector('.start').textContent = sel.tipo === 'treino' ? 'Começar treino' : sel.tipo === 'redacao' ? 'Começar redação' : 'Começar prova';
     el.querySelectorAll('[data-year]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.year === sel.year));
     el.querySelectorAll('[data-day]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.day === sel.day));
     el.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === sel.lang));
-    if (sel.day !== 1 && sel.time === 'semredacao') sel.time = 'oficial';
-    el.querySelector('[data-time="semredacao"]').classList.toggle('hidden', sel.day !== 1);
+    if ((dia !== 1 || porArea || redacao) && sel.time === 'semredacao') sel.time = 'oficial';
+    el.querySelector('[data-time="semredacao"]').classList.toggle('hidden', dia !== 1 || porArea || redacao);
     el.querySelectorAll('[data-time]').forEach(b => b.setAttribute('aria-pressed', b.dataset.time === sel.time));
-    el.querySelector('.lang-field').classList.toggle('hidden', sel.day !== 1);
+    el.querySelector('.lang-field').classList.toggle('hidden', redacao || (porArea ? sel.area !== 'LC' : dia !== 1));
     el.querySelector('.custom').classList.toggle('hidden', sel.time !== 'custom');
     el.querySelector('.custom-l').classList.toggle('hidden', sel.time !== 'custom');
     el.querySelector('.custom').value = sel.custom;
-    el.querySelector('[data-time="oficial"] span').textContent = `Oficial, ${clock(DAYS[sel.day].minutes * 60).slice(0, -3).replace(':', 'h')}`;
-    el.querySelector('.src-link').href = pdfInep(sel.year, sel.day);
+    el.querySelector('[data-time="oficial"] span').textContent = redacao ? 'Cerca de 1 hora, como no dia' : porArea
+      ? `Ritmo do ENEM, ${clock(AREA_MINUTES[sel.area] * 60).slice(0, -3).replace(':', 'h')}`
+      : `Oficial, ${clock(DAYS[sel.day].minutes * 60).slice(0, -3).replace(':', 'h')}`;
+    el.querySelector('.src-link').href = pdfInep(sel.year, dia);
     Object.assign(prefs, sel);
     savePrefs();
   };
   el.addEventListener('click', e => {
-    const b = e.target.closest('[data-year],[data-day],[data-lang],[data-time],[data-tipo],[data-materia],[data-assunto],[data-anotreino],[data-qtd],[data-tempotreino]');
+    const b = e.target.closest('[data-year],[data-day],[data-area],[data-lang],[data-time],[data-tipo],[data-materia],[data-assunto],[data-anotreino],[data-qtd],[data-tempotreino]');
     if (!b) return;
     if (b.dataset.tipo) sel.tipo = b.dataset.tipo;
     if (b.dataset.materia) { sel.materia = b.dataset.materia; sel.assunto = ''; }
@@ -208,6 +239,7 @@ async function home({ intro = false } = {}) {
     if (b.dataset.tipo || b.dataset.materia || b.dataset.assunto !== undefined || b.dataset.anotreino) syncTreino();
     if (b.dataset.year) sel.year = +b.dataset.year;
     if (b.dataset.day) sel.day = +b.dataset.day;
+    if (b.dataset.area) sel.area = b.dataset.area;
     if (b.dataset.lang) sel.lang = b.dataset.lang;
     if (b.dataset.time) sel.time = b.dataset.time;
     sync();
@@ -234,12 +266,24 @@ async function home({ intro = false } = {}) {
       await saveAttempt(a);
       return go(`#/prova/${a.id}`);
     }
-    const limitSec = sel.time === 'oficial' ? DAYS[sel.day].minutes * 60
-      : sel.time === 'semredacao' ? (DAYS[sel.day].minutes - 60) * 60
+    if (sel.tipo === 'redacao') {
+      const r = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        mode: 'redacao', year: sel.year, day: 1, texto: '',
+        limitSec: sel.time === 'oficial' ? REDACAO_MINUTOS * 60 : sel.time === 'custom' ? sel.custom * 60 : 0,
+        startedAt: Date.now(), elapsed: 0, status: 'running',
+      };
+      await saveAttempt(r);
+      return go(`#/prova/${r.id}`);
+    }
+    const area = sel.tipo === 'area' ? sel.area : null;
+    const day = area ? dayOfArea(area) : sel.day;
+    const limitSec = sel.time === 'oficial' ? (area ? AREA_MINUTES[area] : DAYS[day].minutes) * 60
+      : sel.time === 'semredacao' ? (DAYS[day].minutes - 60) * 60
       : sel.time === 'custom' ? sel.custom * 60 : 0;
     const a = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      year: sel.year, day: sel.day, lang: sel.day === 1 ? sel.lang : null,
+      year: sel.year, day, lang: (area ? area === 'LC' : day === 1) ? sel.lang : null, ...(area && { area }),
       limitSec, startedAt: Date.now(), elapsed: 0, status: 'running',
       answers: {}, crossed: {}, time: {}, changes: {}, flags: {}, history: [],
     };
@@ -255,17 +299,11 @@ async function home({ intro = false } = {}) {
 
   el.querySelector('.dl').onclick = () => downloadAll(el);
 
-  el.querySelector('.bk-out').onclick = async () => {
-    const data = await exportBackup();
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `simulado-enem-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    try { localStorage.setItem('lastBackup', String(Date.now())); } catch { /* sem storage */ }
+  el.querySelectorAll('.bk-out').forEach(b => b.addEventListener('click', async () => {
+    await downloadBackup();
     toast('Backup baixado');
-  };
+    el.querySelector('.bk-alert')?.remove();
+  }));
   el.querySelector('.bk-in input').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -279,15 +317,28 @@ async function home({ intro = false } = {}) {
     }
   });
 
-  // pontuação no histórico
-  for (const a of done) {
-    loadFor(a).then(ex => {
-      const s = computeStats(ex, a);
-      const cell = el.querySelector(`tr[data-id="${a.id}"] .score`);
-      if (cell) cell.innerHTML = s.notaMedia != null
-        ? `<b>${Math.round(s.notaMedia)}</b> <span class="muted">${s.certas} acertos</span>`
-        : `<b>${s.certas}</b>/${s.total} <span class="muted">${fmtPct(pct(s.certas, s.total))}</span>`;
-    });
+  // pontuação no histórico e revisão do caderno de erros
+  for (const a of done.filter(x => x.mode === 'redacao')) {
+    const cell = el.querySelector(`tr[data-id="${a.id}"] .score`);
+    if (cell) cell.innerHTML = avaliada(a.avaliacao) ? `<b>${notaRedacao(a.avaliacao)}</b> <span class="muted">autoavaliação</span>` : '<span class="muted">sem nota</span>';
+  }
+  const runs = await Promise.all(done.filter(x => x.mode !== 'redacao').map(async a => {
+    const s = computeStats(await loadFor(a), a);
+    const cell = el.querySelector(`tr[data-id="${a.id}"] .score`);
+    const parcial = s.notaMedia == null && s.temTri ? Object.entries(s.tri)[0] : null;
+    if (cell) cell.innerHTML = s.notaMedia != null
+      ? `<b>${Math.round(s.notaMedia)}</b> <span class="muted">${s.certas} acertos</span>`
+      : parcial ? `<b>${Math.round(parcial[1].nota)}</b> <span class="muted">${AREAS[parcial[0]].name}, ${s.certas} acertos</span>`
+      : `<b>${s.certas}</b>/${s.total} <span class="muted">${fmtPct(pct(s.certas, s.total))}</span>`;
+    return { a, st: s, when: a.finishedAt || a.startedAt };
+  }));
+  const cad = caderno(runs.sort((x, y) => x.when - y.when));
+  if (cad.ativos.length && !running.some(a => a.titulo === 'Revisão do caderno de erros')) {
+    const slot = el.querySelector('.revisao-slot');
+    slot.innerHTML = `<section class="section"><div class="resume review-card"><div><b>${cad.hoje.length ? `Revisão de hoje: ${cad.hoje.length} quest${cad.hoje.length > 1 ? 'ões' : 'ão'} do caderno de erros` : 'Caderno de erros em dia'}</b>
+      <div class="meta">${cad.hoje.length ? 'Questões que você errou, voltando no tempo certo para fixar.' : `Próxima revisão ${quando(cad.proxima)}.`} ${cad.ativos.length} no caderno${cad.dominadas ? `, ${cad.dominadas} dominada${cad.dominadas > 1 ? 's' : ''}` : ''}.</div></div>
+      ${cad.hoje.length ? '<button class="btn primary sm rev-go">Revisar agora</button>' : ''}</div></section>`;
+    slot.querySelector('.rev-go')?.addEventListener('click', () => comecarRevisao(cad.hoje, 'Revisão do caderno de erros'));
   }
 }
 
@@ -320,6 +371,7 @@ async function downloadAll(el) {
 
 window.addEventListener('hashchange', route);
 route();
+pedirPersistencia();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // quando sai uma versão nova, o service worker novo assume e a página recarrega sozinha uma vez

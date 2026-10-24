@@ -3,10 +3,10 @@
 import { AREAS, DAYS, loadFor, nomeProva, loadHabilidades, loadPercentis, percentil } from './data.js';
 import { listAttempts } from './store.js';
 import { computeStats } from './stats.js';
-import { newTreino } from './store.js';
-import { uid } from './data.js';
 import { porMateria, materiasHTML, resumoHTML } from './topics.js';
 import { h, icon, pct, fmtPct, esc } from './ui.js';
+import { caderno, comecarRevisao, quando } from './revisao.js';
+import { getMeta, getSisuState, avaliar, perfilEfetivo, num, notasDoApp, CAMPOS, NOME, SISU_ANO } from './sisu.js';
 
 const AREA_ORDER = ['LC', 'CH', 'CN', 'MT'];
 const SERIES = { LC: 'var(--series-1)', CH: 'var(--series-2)', CN: 'var(--series-3)', MT: 'var(--series-4)' };
@@ -15,7 +15,7 @@ const shortDate = t => new Date(t).toLocaleDateString('pt-BR', { day: '2-digit',
 const STATUS_CLS = { certa: 'good', errada: 'bad', branco: 'blank', anulada: 'null' };
 
 export async function evolutionScreen(app) {
-  const attempts = (await listAttempts()).filter(a => a.status === 'done')
+  const attempts = (await listAttempts()).filter(a => a.status === 'done' && a.mode !== 'redacao')
     .sort((a, b) => (a.finishedAt || a.startedAt) - (b.finishedAt || b.startedAt));
   const habText = await loadHabilidades();
   const dists = await loadPercentis();
@@ -78,18 +78,10 @@ export async function evolutionScreen(app) {
   const seen = [...habs.values()].filter(g => g.total).length;
   const discs = [...disc.values()].sort((a, b) => b.erros / b.total - a.erros / a.total || b.total - a.total);
   const facilTotal = runs.reduce((s, r) => s + r.st.facilErrada.length, 0);
+  const metaPanel = await metaHTML(runs, series);
   const materias = porMateria(runs.flatMap(r => r.st.qs));
-  // caderno de erros: questões cuja resposta mais recente (prova ou treino) ficou errada ou em branco
-  const ultima = new Map();
-  for (const { a, st } of runs) {
-    for (const q of st.qs) {
-      if (q.status === 'anulada') continue;
-      const item = a.mode === 'treino' ? q.src : { year: a.year, day: a.day, id: q.id };
-      ultima.set(uid(item), { item, ok: q.status === 'certa', disciplina: q.disciplina });
-    }
-  }
-  const pendentes = [...ultima.values()].filter(v => !v.ok);
-
+  // caderno de erros com revisão espaçada
+  const cad = caderno(runs);
   const el = h(`<div class="results evolution">
     <div class="results-top">
       <a class="btn ghost sm" href="#/">${icon.back} Início</a>
@@ -110,6 +102,8 @@ export async function evolutionScreen(app) {
       <div class="chart-scroll"><div class="chart" id="notas-chart"></div></div>
     </section>` : `<div class="panel"><p class="empty">A nota TRI aparece aqui quando você entregar uma prova completa. Os treinos por matéria entram na análise de assuntos e habilidades abaixo.</p></div>`}
 
+    ${metaPanel}
+
     <section class="panel" style="margin-top:18px"><h2>Mapa das habilidades</h2>
       <p class="sub">As 30 habilidades de cada área da Matriz de Referência, coloridas pela sua taxa de erro (veja a escala); tracejado = ainda não caiu em nenhuma prova sua. Clique para ver as questões.</p>
       <div class="legend seq-legend"><span>menos erro</span>${[1, 2, 3, 4, 5].map(i => `<i style="background:var(--seq-${i})"></i>`).join('')}<span>mais erro</span><span style="margin-left:10px"><i class="unseen"></i>não cobrada</span></div>
@@ -125,7 +119,9 @@ export async function evolutionScreen(app) {
 
     <div class="grid2" style="margin-top:18px">
       <section class="panel"><h2>O que priorizar</h2>
-        ${pendentes.length ? `<div class="redo-box"><p><b>${pendentes.length} questões</b> continuam erradas ou em branco na sua última tentativa.</p><button class="btn primary sm redo-all">Refazer caderno de erros</button></div>` : ''}
+        ${cad.ativos.length ? `<div class="redo-box"><p>${cad.hoje.length ? `<b>${cad.hoje.length} questões</b> do caderno de erros para revisar hoje.` : `Nada para revisar hoje${cad.proxima ? `; a próxima revisão é ${quando(cad.proxima)}` : ''}.`}
+          <span class="muted">${cad.ativos.length} no caderno${cad.dominadas ? `, ${cad.dominadas} já dominada${cad.dominadas > 1 ? 's' : ''}` : ''}. Errou, volta no dia seguinte; acertou, volta em 3 e depois em 7 dias; acertando a terceira seguida, sai do caderno.</span></p>
+          <div class="row-actions">${cad.hoje.length ? '<button class="btn primary sm redo-hoje">Revisar as de hoje</button>' : ''}<button class="btn sm redo-all">Refazer todas (${cad.ativos.length})</button></div></div>` : ''}
         <p class="sub">Habilidades com mais erros, somando todas as provas. As que caíram poucas vezes pesam menos até você ver mais questões delas.</p>
         <ul class="prio">${prio.slice(0, 10).map(g => `<li data-k="${g.area}-${g.hab}">
           <div class="prio-head"><b>H${g.hab}</b> <span class="muted">${AREAS[g.area].name}</span><span class="tabular prio-n">${g.erros} de ${g.total}</span></div>
@@ -154,11 +150,8 @@ export async function evolutionScreen(app) {
   app.append(el);
   window.scrollTo(0, 0);
 
-  el.querySelector('.redo-all')?.addEventListener('click', async () => {
-    const items = pendentes.map(p => p.item).sort((x, y) => y.year - x.year || x.day - y.day || parseInt(x.id, 10) - parseInt(y.id, 10));
-    const a = await newTreino(items, { titulo: 'Caderno de erros', materia: 'Todas as matérias' });
-    location.hash = `#/prova/${a.id}`;
-  });
+  el.querySelector('.redo-hoje')?.addEventListener('click', () => comecarRevisao(cad.hoje, 'Revisão do caderno de erros'));
+  el.querySelector('.redo-all')?.addEventListener('click', () => comecarRevisao(cad.ativos, 'Caderno de erros'));
   const detail = el.querySelector('.heat-detail');
   const showHab = k => {
     const g = habs.get(k);
@@ -221,4 +214,60 @@ function notasChart(host, allRuns, series) {
   });
   svg.addEventListener('mouseleave', () => tip.classList.add('hidden'));
   svg.addEventListener('click', e => { const c = e.target.closest('.pt'); if (c) location.hash = `#/resultado/${pts[+c.dataset.i].r.a.id}`; });
+}
+
+// meta escolhida na simulação do SISU: quanto falta, onde cada ponto vale mais e a evolução da nota do curso
+async function metaHTML(runs, series) {
+  const [meta, sisu] = await Promise.all([getMeta(), getSisuState()]);
+  if (!meta || meta.ano !== SISU_ANO) {
+    return AREA_ORDER.some(a => series[a].length) ? `<section class="panel meta-panel" style="margin-top:18px"><h2>Meta de curso</h2>
+      <p class="sub">Escolha um curso com a estrela ★ na <a href="#/sisu">simulação do SISU</a> para acompanhar aqui quanto falta para a nota de corte.</p></section>` : '';
+  }
+  // redação: a digitada na simulação; sem ela, a autoavaliação mais recente
+  const redApp = (await notasDoApp()).RED;
+  const manual = { ...sisu?.manual, RED: sisu?.manual?.RED ?? redApp?.v };
+  const perfil = perfilEfetivo(sisu?.perfil);
+  const [, , , , , , , pesos] = meta.o;
+  const soma = pesos.reduce((s, p) => s + p, 0);
+  // nota de cada área: a da prova mais recente do app; sem prova, a digitada na simulação
+  const atual = Object.fromEntries(CAMPOS.map(c => [c, series[c]?.length ? series[c].at(-1).nota : manual[c] ?? null]));
+  const faltam = CAMPOS.filter(c => atual[c] == null);
+  const r = faltam.length ? null : avaliar(meta.o, atual, perfil);
+  const head = `<div class="meta-card"><span class="star on" aria-hidden="true">★</span><div><div class="k">Meta no SISU ${meta.ano}</div>
+    <b>${esc(meta.curso)}, ${esc(meta.sigla)}</b> <span class="muted">${esc(meta.cidade)}, ${meta.uf} · ${meta.turno}</span></div><a class="btn sm ghost" href="#/sisu">Trocar</a></div>`;
+  if (!r) {
+    return `<section class="panel meta-panel" style="margin-top:18px"><h2>Meta de curso</h2>${head}
+      <p class="empty">Falta ${faltam.map(c => NOME[c]).join(', ')} para calcular a sua nota neste curso. ${faltam.includes('RED') ? 'A redação você digita na <a href="#/sisu">simulação do SISU</a>.' : 'Faça a prova do outro dia ou digite a nota na simulação.'}</p></section>`;
+  }
+  const cota = r.melhor.code !== 'A';
+  // quanto cada área pesa na média do curso, e o que acertar as "fáceis" da última prova renderia
+  const linhas = CAMPOS.map(c => {
+    const ultimo = series[c]?.at(-1);
+    const ganho = ultimo ? ultimo.r.st.tri[c]?.ganho || 0 : 0;
+    return { c, peso: pesos[CAMPOS.indexOf(c)], por10: (10 * pesos[CAMPOS.indexOf(c)]) / soma, ganho, ganhoMedia: (ganho * pesos[CAMPOS.indexOf(c)]) / soma };
+  }).sort((a, b) => b.peso - a.peso || b.ganhoMedia - a.ganhoMedia);
+  const maxPor10 = Math.max(...linhas.map(l => l.por10));
+  // nota do curso ao longo das provas: a última nota de cada área conhecida em cada momento
+  const conhecida = { ...Object.fromEntries(CAMPOS.map(c => [c, series[c]?.length ? null : manual[c] ?? null])), RED: manual.RED ?? null };
+  const hist = [];
+  for (const run of runs.filter(x => x.a.mode !== 'treino')) {
+    for (const [area, t] of Object.entries(run.st.tri)) conhecida[area] = t.nota;
+    if (CAMPOS.every(c => conhecida[c] != null)) hist.push({ run, media: avaliar(meta.o, conhecida, perfil).media });
+  }
+  return `<section class="panel meta-panel" style="margin-top:18px"><h2>Meta de curso</h2>${head}
+    <div class="meta-nums">
+      <div><div class="k">Sua nota no curso</div><div class="v tabular">${num(r.media)}</div><div class="s">com os pesos de ${esc(meta.sigla)}</div></div>
+      <div><div class="k">Nota de corte</div><div class="v tabular">${r.melhor.semCorte ? '—' : num(r.melhor.corte)}</div><div class="s">${cota ? 'cota que você pode usar' : 'ampla concorrência'}, SISU ${meta.ano}</div></div>
+      <div><div class="k">${r.status === 'passa' ? 'Folga' : 'Falta'}</div><div class="v tabular ${r.status === 'passa' ? 'good' : 'bad'}">${r.status === 'minima' ? 'mínima' : num(Math.abs(r.margem))}</div>
+        <div class="s">${r.status === 'minima' ? `nota mínima em ${esc(r.abaixo.join(', '))}` : r.status === 'passa' ? 'você passaria hoje' : 'pontos na média do curso'}</div></div>
+    </div>
+    <h3 class="meta-h">Onde cada ponto vale mais</h3>
+    <p class="sub">Peso de cada prova neste curso: quanto 10 pontos a mais numa área sobem a sua média. “Fáceis erradas” é o que acertar as questões fáceis para a sua nota, na última prova, teria rendido.</p>
+    ${linhas.map(l => `<div class="hbar"><span class="name">${NOME[l.c]} <span class="muted">peso ${String(l.peso).replace('.', ',')}</span></span>
+      <div class="track"><div class="fill" style="width:${(l.por10 / maxPor10) * 100}%;background:var(--form)"></div></div>
+      <span class="val">+${num(l.por10)} por 10 pts${l.ganhoMedia >= 0.5 ? ` · fáceis erradas: <b class="good">+${num(l.ganhoMedia)}</b>` : ''}</span></div>`).join('')}
+    ${manual.RED != null ? `<p class="note">Redação: ${num(manual.RED)}, ${sisu?.manual?.RED != null ? 'a nota que você digitou na simulação' : `da sua ${esc(redApp.fonte)}`}.</p>` : ''}
+    ${hist.length > 1 ? `<h3 class="meta-h">Sua nota no curso ao longo das provas</h3>
+      <div class="meta-hist">${hist.map(x => `<div class="${x.media >= (r.melhor.corte || 0) ? 'ok' : ''}"><span class="tabular">${num(x.media)}</span><small>${shortDate(x.run.when)} · ${esc(nomeProva(x.run.a).replace('ENEM ', ''))}</small></div>`).join('')}</div>` : ''}
+  </section>`;
 }

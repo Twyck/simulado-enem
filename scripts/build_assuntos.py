@@ -47,7 +47,7 @@ for year in out:  # língua estrangeira: questões 1 a 5 de cada língua
         out[year]['d1'][f'{n}en'] = ['Inglês', 'Interpretação de texto em inglês']
         out[year]['d1'][f'{n}es'] = ['Espanhol', 'Interpretação de texto em espanhol']
 total = sum(len(d) for y in out.values() for d in y.values())
-assert total == 925, total
+assert total == 925 + 4 * 185, total
 (app / 'data/assuntos.json').write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')))
 from collections import Counter
 print(total, 'questões'); print(Counter(v[0] for y in out.values() for d in y.values() for v in d.values()))

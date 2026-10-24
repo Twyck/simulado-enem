@@ -4,6 +4,7 @@ import { Viewer, openPdf } from './viewer.js';
 import { CropViewer } from './cards.js';
 import { saveAttempt } from './store.js';
 import { h, icon, clock, dur, modal, toast, esc } from './ui.js';
+import { folhaHTML, mountFolha, paginasRedacao } from './redacao.js';
 
 const OFFSCREEN_SECONDS = 3; // após quanto tempo fora da tela a questão "em foco" muda pela rolagem
 const IDLE_SECONDS = 180; // sem tocar, rolar ou digitar por 3 min, o relógio da questão para (o da prova continua)
@@ -11,11 +12,13 @@ const IDLE_SECONDS = 180; // sem tocar, rolar ou digitar por 3 min, o relógio d
 export async function examScreen(app, attempt, { review = false, focusQ = null, go, setLeave }) {
   // treino por matéria: questões recortadas de vários cadernos; senão, a prova completa de um dia
   const treino = attempt.mode === 'treino';
-  const exam = treino ? await loadTreino(attempt.items) : await loadExam(attempt.year, attempt.day, attempt.lang);
+  const exam = treino ? await loadTreino(attempt.items) : await loadExam(attempt.year, attempt.day, attempt.lang, attempt.area);
   const day = treino ? null : DAYS[attempt.day];
-  const titulo = treino ? nomeProva(attempt) : `ENEM ${attempt.year} · ${day.label}`;
-  const subtitulo = treino ? `${attempt.titulo ? attempt.materia : attempt.assunto || 'Todos os assuntos'}, ${exam.ids.length} questões` : `Caderno 1 Azul${attempt.day === 1 ? ` · ${LANGS[attempt.lang]}` : ''}`;
+  const titulo = treino ? nomeProva(attempt) : `ENEM ${attempt.year} · ${attempt.area ? AREAS[attempt.area].name : day.label}`;
+  const subtitulo = treino ? `${attempt.titulo ? attempt.materia : attempt.assunto || 'Todos os assuntos'}, ${exam.ids.length} questões` : `Caderno 1 Azul${attempt.area ? `, ${day.label}` : ''}${attempt.lang ? ` · ${LANGS[attempt.lang]}` : ''}`;
   const limit = attempt.limitSec;
+  // prova completa do 1º dia: a folha de redação fica junto, no mesmo tempo de prova
+  const comRedacao = !treino && attempt.day === 1 && !attempt.area;
   const ids = exam.ids;
 
   app.innerHTML = '';
@@ -40,6 +43,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
         ${review ? `<div class="err-nav" role="group" aria-label="Navegar pelos erros">
           <button class="btn sm ghost err-prev" title="Erro anterior">‹</button><span class="err-pos tabular"></span><button class="btn sm err-next" title="Próximo erro">Próximo erro ›</button></div>` : `<button class="btn sm ghost hide-bar" title="Ocultar a barra: esconde o tempo e a contagem de questões (tecla H)">${icon.eyeOff}</button>
         <button class="btn sm ghost pause" title="Pausar">${icon.pause}</button>`}
+        ${comRedacao && !review ? `<button class="btn sm red-toggle" title="Folha de redação">${icon.pen}<span class="hide-sm">Redação</span></button>` : ''}
         <button class="btn sm sheet-toggle" title="Cartão-resposta">${icon.sheet}<span class="cnt tabular"></span></button>
       </div>
     </header>
@@ -51,6 +55,9 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
         <div class="loading"><div>${treino ? 'Separando as questões nos cadernos do INEP…' : 'Abrindo o caderno oficial do INEP…'}<div class="progress"><i></i></div></div></div>
       </div>
       <aside class="sheet" aria-label="Cartão-resposta"></aside>
+      ${comRedacao && !review ? `<aside class="red-drawer" aria-label="Folha de redação">
+        <div class="red-drawer-head"><button class="btn sm ghost red-prop">Ver a proposta no caderno</button><button class="btn sm ghost red-close" title="Fechar">✕</button></div>
+        ${folhaHTML(attempt.redacao || '')}</aside>` : ''}
     </div>
   </div>`);
   app.append(el);
@@ -75,7 +82,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   // ---------------- cartão-resposta ----------------
   function buildSheet() {
     const rows = [];
-    const groups = treino ? [[attempt.materia, exam.questions]] : day.areas.map(a => [AREAS[a].name, exam.questions.filter(q => q.area === a)]);
+    const groups = treino ? [[attempt.materia, exam.questions]] : day.areas.filter(a => !attempt.area || a === attempt.area).map(a => [AREAS[a].name, exam.questions.filter(q => q.area === a)]);
     for (const [name, qs] of groups) {
       rows.push(`<div class="sheet-area">${esc(name)}</div>`);
       for (const q of qs) {
@@ -83,7 +90,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
         rows.push(`<div class="row" data-q="${q.id}">
           <button class="num" title="${treino ? esc(q.origem) : `Ir para a questão ${q.n}`}">${label}</button>
           <div class="opts">${'ABCDE'.split('').map(L => `<button class="opt" data-l="${L}" aria-label="Questão ${label}, ${L}">${L}</button>`).join('')}</div>
-          ${review ? `<span class="t">${dur(attempt.time[q.id] || 0)}</span>` : `<button class="flag" title="Marcar para revisar">${icon.flag}</button>`}
+          ${review ? `<span class="t">${dur(attempt.time[q.id] || 0)}</span>${q.povo ? `<span class="pv" title="${Math.round(q.povo.acerto)}% dos candidatos acertaram; errada mais marcada: ${q.povo.distrator} (${Math.round(q.povo.distratorPct)}%)">${Math.round(q.povo.acerto)}%</span>` : ''}` : `<button class="flag" title="Marcar para revisar">${icon.flag}</button>`}
         </div>`);
       }
     }
@@ -95,7 +102,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
       const row = e.target.closest('.row');
       if (!row) return;
       const qid = row.dataset.q;
-      if (e.target.closest('.num')) { viewer?.scrollToQuestion(qid); setCurrent(qid); closeSheetOnMobile(); }
+      if (e.target.closest('.num')) { viewer?.scrollToQuestion(qid); setCurrent(qid); povoInfo(qid); closeSheetOnMobile(); }
       else if (e.target.closest('.opt') && !review) mark(qid, e.target.closest('.opt').dataset.l, { fromSheet: true });
       else if (e.target.closest('.flag')) { attempt.flags[qid] = !attempt.flags[qid]; refreshRow(qid); dirty = true; }
     });
@@ -174,7 +181,8 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   let idle = false;
   function updateQNow() {
     const q = exam.byId[attempt.current];
-    if (!q || review) { $('.qnow').textContent = ''; return; }
+    if (review) return; // na revisão, a linha mostra como os candidatos responderam (povoInfo)
+    if (!q) { $('.qnow').textContent = ''; return; }
     $('.qnow').innerHTML = `Questão <b>${treino ? q.idx : q.n}</b> · ${clock(attempt.time[q.id] || 0, false)}${idle ? ' <span class="idle" title="Sem interação há mais de 3 minutos: o tempo desta questão está parado">parado</span>' : ''}`;
   }
 
@@ -261,6 +269,19 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     go(`#/resultado/${attempt.id}`);
   }
 
+  // dicas na primeira prova feita neste aparelho
+  function dicas() {
+    try { if (localStorage.getItem('dicasProva')) return; } catch { return; }
+    const card = h(`<div class="dicas" role="dialog" aria-label="Dicas"><h3>Como marcar no caderno</h3><ul>
+      <li><b>Toque na letra impressa</b> (A a E) para marcar. Toque de novo para desmarcar.</li>
+      <li><b>Segure</b> a letra, ou clique com o botão direito, para riscar uma alternativa.</li>
+      <li>O <b>olho riscado</b> na barra esconde o tempo e a contagem de questões.</li>
+      ${comRedacao ? '<li>A <b>folha de redação</b> abre no botão Redação, no mesmo tempo de prova.</li>' : ''}
+      </ul><button class="btn primary sm">Entendi</button></div>`);
+    card.querySelector('button').onclick = () => { card.remove(); try { localStorage.setItem('dicasProva', '1'); } catch { /* sem storage */ } };
+    $('.exam-main').append(card);
+  }
+
   function closeSheetOnMobile() { el.classList.remove('sheet-open'); }
 
   function cleanup() {
@@ -303,6 +324,16 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   };
   el.querySelector('.pause')?.addEventListener('click', () => setPaused(attempt.status === 'running'));
   $('.sheet-toggle').onclick = () => el.classList.toggle('sheet-open');
+  if (comRedacao && !review) {
+    mountFolha($('.red-drawer'), { onInput: v => { attempt.redacao = v; dirty = true; } });
+    const abrir = v => { el.classList.toggle('red-open', v); if (v) el.classList.remove('sheet-open'); };
+    $('.red-toggle').onclick = () => abrir(!el.classList.contains('red-open'));
+    $('.red-close').onclick = () => abrir(false);
+    $('.red-prop').onclick = async () => {
+      const [p] = await paginasRedacao(attempt.year);
+      viewer?.pages[p - 1]?.el.scrollIntoView({ block: 'start' });
+    };
+  }
   // modo sem relógio: some a barra de cima (tempo, contagem) e a contagem do cartão-resposta
   function setBarHidden(v) {
     attempt.hideBar = v;
@@ -329,11 +360,21 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     cleanup();
   });
 
+  // revisão: como os candidatos de verdade responderam a questão
+  function povoInfo(qid) {
+    const q = exam.byId[qid];
+    if (!review || !q) return;
+    $('.qnow').innerHTML = q.povo ? `Q<b>${treino ? q.idx : q.n}</b> · <b>${Math.round(q.povo.acerto)}%</b> dos candidatos acertaram · errada mais marcada: <b>${q.povo.distrator}</b> (${Math.round(q.povo.distratorPct)}%)` : `Q<b>${treino ? q.idx : q.n}</b>`;
+  }
+
   // revisão: pular direto entre as questões erradas ou em branco
   if (review) {
     const erros = ids.filter(id => { const q = exam.byId[id]; return q.key !== 'X' && attempt.answers[id] !== q.key; });
     let pos = focusQ ? erros.indexOf(focusQ) : -1;
-    const show = () => { $('.err-pos').textContent = erros.length ? `${pos >= 0 ? pos + 1 : '–'} de ${erros.length}` : 'nenhum erro'; };
+    const show = () => {
+      $('.err-pos').textContent = erros.length ? `${pos >= 0 ? pos + 1 : '–'} de ${erros.length}` : 'nenhum erro';
+      povoInfo(erros[pos] ?? focusQ);
+    };
     const goErr = d => {
       if (!erros.length) return;
       pos = (pos + d + erros.length) % erros.length;
@@ -358,7 +399,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
       state: () => attempt,
       onMark: mark,
       onCross: cross,
-      onFocus: setCurrent,
+      onFocus: qid => (review ? povoInfo(qid) : setCurrent(qid)),
     };
     if (treino) {
       viewer = new CropViewer($('.pages'), exam, vopts);
@@ -372,6 +413,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     }
     viewer.setTool('mark');
     $('.loading').remove();
+    if (!review) dicas();
     if (attempt.status === 'paused' && !review) setPaused(false);
     const target = focusQ || (review ? ids[0] : attempt.current);
     viewer.setCurrent(attempt.current);

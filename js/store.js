@@ -61,6 +61,24 @@ export async function newTreino(items, extra = {}) {
 // ---------- backup: tudo o que o app guarda, num arquivo ----------
 const BACKUP_KIND = 'simulado-enem-backup';
 
+const lastBackup = () => { try { return +localStorage.getItem('lastBackup') || 0; } catch { return 0; } };
+// provas entregues depois do último backup baixado neste aparelho
+export const semBackup = attempts => attempts.filter(a => a.status === 'done' && (a.finishedAt || a.startedAt) > lastBackup());
+
+export async function downloadBackup() {
+  const blob = new Blob([JSON.stringify(await exportBackup())], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `simulado-enem-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  try { localStorage.setItem('lastBackup', String(Date.now())); } catch { /* sem storage */ }
+}
+
+// pede ao navegador para não apagar os dados do site quando faltar espaço ou o site ficar sem uso
+// (o Safari apaga sites não instalados após 7 dias sem visita)
+export const pedirPersistencia = () => navigator.storage?.persist?.().catch(() => false) ?? Promise.resolve(false);
+
 export async function exportBackup() {
   const keys = (await kv.keys()).filter(k => /^(attempt|ink):/.test(String(k)));
   const entries = await Promise.all(keys.map(async k => [k, await kv.get(k)]));
