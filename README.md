@@ -38,6 +38,8 @@ anotações, tempos); **Restaurar backup** junta esse arquivo ao que já existe 
 - **Clique direito / toque longo** risca a alternativa (ou use a ferramenta de riscar).
 - Caneta, marca-texto e borracha na barra de cima; zoom com lupa.
 - Teclado: `A`–`E` marcam a questão em foco, `J`/`K` vão para a próxima/anterior.
+- O botão com o olho riscado (ou a tecla `H`) oculta a barra de cima: some o tempo e a contagem de questões.
+  O botão "Mostrar barra", no canto, traz tudo de volta.
 - O tempo por questão vai para a questão "em foco": a que você clicou ou marcou por último
   (ao marcar, o foco passa para a próxima). Se ela sair da tela, o foco vai para a primeira questão visível.
 

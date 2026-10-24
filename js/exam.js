@@ -38,10 +38,14 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
       </div>
       <div class="bar-group end">
         ${review ? `<div class="err-nav" role="group" aria-label="Navegar pelos erros">
-          <button class="btn sm ghost err-prev" title="Erro anterior">‹</button><span class="err-pos tabular"></span><button class="btn sm err-next" title="Próximo erro">Próximo erro ›</button></div>` : `<button class="btn sm ghost pause" title="Pausar">${icon.pause}</button>`}
+          <button class="btn sm ghost err-prev" title="Erro anterior">‹</button><span class="err-pos tabular"></span><button class="btn sm err-next" title="Próximo erro">Próximo erro ›</button></div>` : `<button class="btn sm ghost hide-bar" title="Ocultar a barra: esconde o tempo e a contagem de questões (tecla H)">${icon.eyeOff}</button>
+        <button class="btn sm ghost pause" title="Pausar">${icon.pause}</button>`}
         <button class="btn sm sheet-toggle" title="Cartão-resposta">${icon.sheet}<span class="cnt tabular"></span></button>
       </div>
     </header>
+    ${review ? '' : `<div class="bar-float" role="group" aria-label="Barra oculta">
+      <button class="btn sm show-bar" title="Mostrar a barra com o tempo e as ferramentas (tecla H)">${icon.eye}<span>Mostrar barra</span></button>
+      <button class="btn sm float-sheet" title="Cartão-resposta">${icon.sheet}</button></div>`}
     <div class="exam-main">
       <div class="scroller"><div class="pages"></div>
         <div class="loading"><div>${treino ? 'Separando as questões nos cadernos do INEP…' : 'Abrindo o caderno oficial do INEP…'}<div class="progress"><i></i></div></div></div>
@@ -276,6 +280,7 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
     if (review || attempt.status !== 'running' || e.metaKey || e.ctrlKey || e.target.closest('input,textarea')) return;
     const k = e.key.toUpperCase();
     if ('ABCDE'.includes(k) && k.length === 1) { mark(attempt.current, k); e.preventDefault(); }
+    else if (k === 'H') setBarHidden(!attempt.hideBar);
     else if (k === 'J' || k === 'K') {
       const i = ids.indexOf(attempt.current) + (k === 'J' ? 1 : -1);
       if (ids[i]) { setCurrent(ids[i]); viewer.scrollToQuestion(ids[i]); }
@@ -298,6 +303,18 @@ export async function examScreen(app, attempt, { review = false, focusQ = null, 
   };
   el.querySelector('.pause')?.addEventListener('click', () => setPaused(attempt.status === 'running'));
   $('.sheet-toggle').onclick = () => el.classList.toggle('sheet-open');
+  // modo sem relógio: some a barra de cima (tempo, contagem) e a contagem do cartão-resposta
+  function setBarHidden(v) {
+    attempt.hideBar = v;
+    el.classList.toggle('bar-hidden', v);
+    save();
+  }
+  if (!review) {
+    el.classList.toggle('bar-hidden', !!attempt.hideBar);
+    $('.hide-bar').onclick = () => setBarHidden(true);
+    $('.show-bar').onclick = () => setBarHidden(false);
+    $('.float-sheet').onclick = () => el.classList.toggle('sheet-open');
+  }
   el.querySelectorAll('.tool[data-tool]').forEach(b => b.addEventListener('click', () => {
     el.querySelectorAll('.tool[data-tool]').forEach(x => x.setAttribute('aria-pressed', x === b));
     viewer?.setTool(b.dataset.tool);

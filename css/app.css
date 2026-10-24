@@ -697,3 +697,18 @@ i.unseen, .cell[data-unseen] { background: transparent; border: 1.5px dashed var
   .sisu-table td.r .meta { margin-left: 0; }
   .sisu-table tr.passa td:first-child { box-shadow: none; }
 }
+
+/* prova sem relógio: barra de cima oculta, sem tempo nem contagem de questões */
+.bar-float { display: none; }
+.exam.bar-hidden .exam-bar { display: none; }
+.exam.bar-hidden .bar-float {
+  display: flex; gap: 6px; position: fixed; z-index: 7;
+  top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left));
+}
+.bar-float .btn { background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: 0 4px 14px rgb(19 34 63 / .12); }
+.bar-float .float-sheet { display: none; }
+.exam.bar-hidden .sheet-head h3 .s-count, .exam.bar-hidden .sheet-head .progress { display: none; }
+@media (max-width: 900px) {
+  .bar-float .float-sheet { display: inline-flex; }
+  .bar-float .show-bar span { display: none; }
+}
